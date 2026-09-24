@@ -6,9 +6,14 @@
  * 两者都会提交进仓库：
  *
  *   1. public/comics/<slug>/<话号>/<页号>.svg
- *      3 部 × 5 话 × 10 页 = 150 张 600×800 占位图，图面写明话号与页码；
- *   2. data/comics.ts
+ *      3 部 × 5 话 × 10 页 = 150 张 600×800（3:4）页图，图面写明话号与页码；
+ *   2. public/comics/<slug>/cover.svg
+ *      每部 1 张 600×900（2:3）封面，图面写明书名与作者；
+ *   3. data/comics.ts
  *      与 docs/contracts/types.ts 对齐的示例数据（漫画 + 话 + 标签）。
+ *
+ * 为什么封面要单独出 2:3：卡片容器是 2:3（ui.md §3.6），页图是 3:4，
+ * 拿页图当封面会被裁掉一截；两者比例各自正确，卡片端才不需要裁切。
  *
  * 为什么用脚本而不是手写：150 张图和对应的类型化数据必须永远一致，「图少了一张」
  * 这类手工错误不该出现在项目里。脚本是幂等的：每次先清空 public/comics 再重建，
@@ -28,9 +33,12 @@ const REPO_ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PUBLIC_COMICS_DIR = path.join(REPO_ROOT, "public", "comics");
 const DATA_FILE_PATH = path.join(REPO_ROOT, "data", "comics.ts");
 
-/** 占位图尺寸 3:4，与契约 ImageRef 的显式宽高一致（阅读页不跳动的前提） */
+/** 页图尺寸 3:4，与契约 ImageRef 的显式宽高一致（阅读页不跳动的前提） */
 const PAGE_WIDTH = 600;
 const PAGE_HEIGHT = 800;
+/** 封面尺寸 2:3（ui.md §3.6）：与卡片容器同比例，避免裁切 */
+const COVER_WIDTH = 600;
+const COVER_HEIGHT = 900;
 /** 每话页数：3 部 × 5 话 × 10 页 = 150 张 */
 const PAGES_PER_CHAPTER = 10;
 /** 每部话数：与任务单 T-003 的「3 部 × 5 话 × 10 页」一致 */
@@ -92,9 +100,9 @@ function pageFileName(page) {
   return `${String(page).padStart(3, "0")}.svg`;
 }
 
-/** 站点内绝对路径，与契约 ImageRef.src 的写法一致 */
-function pageSrc(comic, chapter, page) {
-  return `/comics/${comic.slug}/${chapter}/${pageFileName(page)}`;
+/** 封面路径放在漫画根目录：/comics/<slug>/cover.svg（与话目录同级，不混淆） */
+function coverSrc(comic) {
+  return `/comics/${comic.slug}/cover.svg`;
 }
 
 /** SVG 是 XML，文本节点里的 & < > 必须转义，否则文件本身就不是合法 XML */
@@ -125,6 +133,23 @@ function renderPageSvg(comic, chapterNumber, chapterTitle, page) {
 `;
 }
 
+/** 单张封面：2:3，图面写书名与作者，角落标注「封面 2:3」便于与页图区分 */
+function renderCoverSvg(comic) {
+  const { bg, ink, accent } = comic.palette;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${COVER_WIDTH}" height="${COVER_HEIGHT}" viewBox="0 0 ${COVER_WIDTH} ${COVER_HEIGHT}" role="img" aria-label="封面：${escapeXml(comic.title)}">
+  <title>封面：${escapeXml(comic.title)}</title>
+  <rect width="${COVER_WIDTH}" height="${COVER_HEIGHT}" fill="${bg}" />
+  <rect x="28" y="28" width="${COVER_WIDTH - 56}" height="${COVER_HEIGHT - 56}" fill="none" stroke="${accent}" stroke-width="3" opacity="0.7" />
+  <text x="48" y="76" font-family="sans-serif" font-size="20" letter-spacing="2" fill="${accent}">封面 2:3</text>
+  <text x="48" y="120" font-family="sans-serif" font-size="20" fill="${ink}" opacity="0.6">占位封面 · 由生成脚本产出</text>
+  <text x="300" y="470" text-anchor="middle" font-family="sans-serif" font-size="52" font-weight="700" fill="${ink}">${escapeXml(comic.title)}</text>
+  <text x="300" y="524" text-anchor="middle" font-family="sans-serif" font-size="26" fill="${ink}" opacity="0.75">作者：${escapeXml(comic.author)}</text>
+  <text x="300" y="${COVER_HEIGHT - 64}" text-anchor="middle" font-family="sans-serif" font-size="20" fill="${accent}">第 1 话 · 共 ${comic.chapters.length} 话</text>
+</svg>
+`;
+}
+
 /** 生成 data/comics.ts 的完整文本（格式固定，保证重复执行输出一致） */
 function renderDataFile() {
   const tagLines = TAGS.map((tag) => `  { slug: "${tag.slug}", name: "${tag.name}" },`).join("\n");
@@ -142,13 +167,12 @@ function renderDataFile() {
       "${comic.summary}",
     tags: [${tagList}],
     order: ${comic.order},
-    // 封面复用第 1 话第 1 页（见任务单 T-003 的「恰好 150 张 SVG」约束），
-    // 卡片端用 2:3 容器裁切显示，因此这里不需要第 151 张专属封面图。
+    // 封面是独立的 2:3（600×900）占位图，与卡片容器同比例，展示时不裁切（ui.md §3.6）
     cover: {
-      src: "${pageSrc(comic, 1, 1)}",
-      width: ${PAGE_WIDTH},
-      height: ${PAGE_HEIGHT},
-      alt: "《${comic.title}》封面",
+      src: "${coverSrc(comic)}",
+      width: ${COVER_WIDTH},
+      height: ${COVER_HEIGHT},
+      alt: "封面：${comic.title}",
     },
     chapters: [
 ${chapterLines}
@@ -214,7 +238,15 @@ async function main() {
   await rm(PUBLIC_COMICS_DIR, { recursive: true, force: true });
 
   let pageCount = 0;
+  let coverCount = 0;
   for (const comic of COMICS) {
+    await mkdir(path.join(PUBLIC_COMICS_DIR, comic.slug), { recursive: true });
+    await writeFile(
+      path.join(PUBLIC_COMICS_DIR, comic.slug, "cover.svg"),
+      renderCoverSvg(comic),
+      "utf8",
+    );
+    coverCount += 1;
     for (const [index, chapterTitle] of comic.chapters.entries()) {
       const chapterNumber = index + 1;
       const chapterDir = path.join(PUBLIC_COMICS_DIR, comic.slug, String(chapterNumber));
@@ -234,7 +266,10 @@ async function main() {
   await writeFile(DATA_FILE_PATH, renderDataFile(), "utf8");
 
   console.log(
-    `[generate-sample-data] 漫画 ${COMICS.length} 部 / 话 ${COMICS.length * CHAPTERS_PER_COMIC} / 标签 ${TAGS.length} 个 / 占位图 ${pageCount} 张`,
+    `[generate-sample-data] 漫画 ${COMICS.length} 部 / 话 ${COMICS.length * CHAPTERS_PER_COMIC} / 标签 ${TAGS.length} 个`,
+  );
+  console.log(
+    `[generate-sample-data] 页图 ${pageCount} 张（600×800，3:4，每话 ${PAGES_PER_CHAPTER} 页）+ 封面 ${coverCount} 张（600×900，2:3）= ${pageCount + coverCount} 张 SVG`,
   );
   console.log("[generate-sample-data] 输出：public/comics/**（SVG）、data/comics.ts（类型化数据）");
 }
