@@ -242,7 +242,11 @@ test.describe("D-016 接下一话的地址同步", () => {
     await expect(page).toHaveURL(/\/comics\/xinghai\/4$/);
     await expect(readerHeader(page)).toContainText("第 4 话");
     await expect(page.locator('[data-section="4"]')).toBeAttached();
-    await expect(pageBlocks(page)).toHaveCount(10);
+    // D-022 收窄：只数第 4 话自己的页块（原为全页 [data-page-index] === 10）。
+    // 硬刷新时浏览器会把刷新前的滚动偏移恢复到新文档，落点常常已经在本话末尾，
+    // 阅读器于是按 F5-4 的设计自动接上第 5 话 —— 全页会有 20 个页块，那是正确行为，
+    // 不能当失败判据（收窄前隔离复跑 2/10 命中，而失败现场 URL 与顶栏都正确）。
+    await expect(sectionBlocks(page, 4)).toHaveCount(10);
   });
 
   test("D-016-③ 滚到第 4 话后按浏览器后退，回到进入阅读页之前的页面 @webkit", async ({
