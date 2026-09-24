@@ -104,6 +104,8 @@ beforeEach(() => {
   window.localStorage.clear();
   MockIntersectionObserver.instances = [];
   vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+  // 预取会调用 fetch；这里给一个永不 resolve 的桩，避免测试里出现真实网络与多余状态更新
+  vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
   Object.defineProperty(window, "scrollY", { value: 0, writable: true, configurable: true });
   // 伪造布局：第 n 页的顶边 = n * 页高 - 已滚动距离
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (

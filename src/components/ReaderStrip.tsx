@@ -7,15 +7,17 @@
  *      之下」的页，没有满足的就取最后一页；
  *   3) 滚动停止 500ms 后把当前页写进 localStorage；切页/卸载前不额外写；
  *   4) 顶栏随滚动方向收起/显示，点按画面也能唤回；
- *   5) 首次进入时按本机记录滚到该页（Q5 的落点规则）。
+ *   5) 首次进入时按本机记录滚到该页（Q5 的落点规则）；
+ *   6) 接下一话（T-007）：剩余不足一屏就预取下一话的数据，滚到话末区块时把下一话
+ *      追加到同一条滚动流里，同时用 router.replace 同步地址栏与顶栏。
  *
- * 为什么这些必须在客户端：IntersectionObserver、scroll 事件、localStorage 都是
- * 浏览器能力。服务端只负责把这一话的数据（页清单、前后话序号）取好传进来，
- * 于是首屏 HTML 里就有完整的 10 个页位，图片再按需到达 —— 这也是「无布局跳动」
- * 的前提：页位是服务端渲染出来的 3:4 容器，图片只是填进去。
+ * 为什么这些必须在客户端：IntersectionObserver、scroll 事件、localStorage、按需
+ * fetch 都是浏览器行为。服务端只把当前话的数据取好传进来，于是首屏 HTML 里就有
+ * 完整的页位，图片与下一话数据再按需到达 —— 这也是「无布局跳动」的前提。
  *
- * 「接下一话」不在这里实现（T-007）：T-007 会把下面的 sections 改成 state 并把
- * 下一话 append 进同一条滚动流，因此这里一开始就按「多段落」的形状来渲染。
+ * 为什么预取用客户端 fetch 而不是服务端渲染：下一话用户可能根本读不到，服务端
+ * 提前渲染会白白增加首屏体积；而「读到快到底」这个时机只有客户端知道（滚动位置）。
+ * 接口本身是 Route Handler（HTTP 端点），客户端 fetch 到的就是契约里的 ChapterDetail。
  * ========================================================================== */
 
 "use client";
@@ -26,7 +28,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ReaderProgressBar } from "@/components/ReaderProgressBar";
 import { RetryableImage } from "@/components/RetryableImage";
 import { createProgressRecord, readProgress, writeProgress } from "@/lib/progress";
-import type { ImageRef } from "@/types/comic";
+import type { ChapterDetail, ImageRef } from "@/types/comic";
 
 /** storage.md：滚动停止 500ms 后写入 */
 const WRITE_DEBOUNCE_MS = 500;
@@ -34,12 +36,18 @@ const WRITE_DEBOUNCE_MS = 500;
 const LAZY_ROOT_MARGIN = "0px 0px 200px 0px";
 /** 图片列宽度：手机全出血、桌面 720px 居中（ui.md §5.4） */
 const IMAGE_SIZES = "(min-width: 768px) 720px, 100vw";
+/** 剩余不足一屏就预取下一话（F5-11） */
+const PREFETCH_REMAINING_SCREENS = 1;
 
 type StripSection = {
   number: number;
   title: string;
   pages: ImageRef[];
+  /** 服务端给的下一话序号；null = 已经是最后一话 */
+  nextNumber: number | null;
 };
+
+type NextStatus = "idle" | "loading" | "ready" | "error";
 
 /**
  * 当前页判定（storage.md 的「当前页判定细则」）：
@@ -72,6 +80,15 @@ function isAtScrollBottom(): boolean {
   return window.scrollY + window.innerHeight >= doc.scrollHeight - 24;
 }
 
+/** 取下一话数据；失败直接抛错，由调用方转成「重试」状态 */
+export async function fetchChapter(slug: string, chapter: number): Promise<ChapterDetail> {
+  const response = await fetch(`/api/comics/${slug}/chapters/${chapter}`);
+  if (!response.ok) {
+    throw new Error(`下一话数据获取失败：${response.status}`);
+  }
+  return (await response.json()) as ChapterDetail;
+}
+
 export function ReaderStrip({
   comicSlug,
   comicTitle,
@@ -85,22 +102,59 @@ export function ReaderStrip({
   chapter: number;
   chapterTitle: string;
   pages: ImageRef[];
-  /** 由服务端的 getChapter().next 决定：T-006 先用来判断「要不要显示收尾」 */
   hasNextChapter: boolean;
 }) {
-  // T-006 只有当前话一段；T-007 会把它改成 state 并 append 下一话（见文件头注释）
-  const sections: StripSection[] = [{ number: chapter, title: chapterTitle, pages }];
-  const totalPages = sections.reduce((sum, section) => sum + section.pages.length, 0);
+  // 段落列表：初始只有当前话；接下一话时把新话 append 进来（同一条滚动流，F5-4）
+  const [sections, setSections] = useState<StripSection[]>(() => [
+    { number: chapter, title: chapterTitle, pages, nextNumber: hasNextChapter ? chapter + 1 : null },
+  ]);
+  const [nextStatus, setNextStatus] = useState<NextStatus>("idle");
+  const [nextChapter, setNextChapter] = useState<ChapterDetail | null>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [restoredPage, setRestoredPage] = useState<number | null>(null);
+  const [topBarHidden, setTopBarHidden] = useState(false);
+  const [loadedKeys, setLoadedKeys] = useState<Set<string>>(() => new Set());
 
   const stripRef = useRef<HTMLDivElement | null>(null);
+  const nextBlockRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const observedElements = useRef(new Map<string, Element>());
   const refCallbacks = useRef(new Map<string, (element: HTMLDivElement | null) => void>());
+  /** 已经发起过预取的话号，保证同一话不会重复请求（F5-11 验收项） */
+  const requestedChapters = useRef(new Set<number>());
+  /** 最近一次同步到地址栏的 URL，避免反复 replace 同一个地址 */
+  const lastSyncedUrl = useRef<string>(`/comics/${comicSlug}/${chapter}`);
+  /** 待写进度的定时器。放在 ref 里而不是滚动 effect 的局部变量：
+   *  effect 会因为预取状态变化而重订阅，局部变量会导致「正要写就被清掉」。 */
+  const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [loadedKeys, setLoadedKeys] = useState<Set<string>>(() => new Set());
-  const [currentPage, setCurrentPage] = useState(1);
-  const [restoredPage, setRestoredPage] = useState<number | null>(null);
-  const [topBarHidden, setTopBarHidden] = useState(false);
+  const deepest = sections[sections.length - 1];
+  const nextNumber = deepest?.nextNumber ?? null;
+
+  /** 把「全局页序号」映射回「哪一话的第几页」——追加了多话之后依然成立 */
+  const locate = useCallback(
+    (globalIndex: number) => {
+      let offset = 0;
+      for (let index = 0; index < sections.length; index += 1) {
+        const section = sections[index];
+        if (!section) {
+          continue;
+        }
+        if (globalIndex < offset + section.pages.length) {
+          return { section, pageInChapter: globalIndex - offset + 1 };
+        }
+        offset += section.pages.length;
+      }
+      const fallback: StripSection = deepest ?? {
+        number: chapter,
+        title: chapterTitle,
+        pages,
+        nextNumber: null,
+      };
+      return { section: fallback, pageInChapter: fallback.pages.length };
+    },
+    [sections, deepest, chapter, chapterTitle, pages],
+  );
 
   /** 稳定的 ref 回调表：避免每次渲染都让 React 重新挂载观察目标 */
   const pageRef = useCallback((key: string) => {
@@ -122,28 +176,108 @@ export function ReaderStrip({
     return callback;
   }, []);
 
-  /** 按 storage.md 的口径量一次当前页 */
-  const measureCurrentPage = useCallback(() => {
+  /** 按 storage.md 的口径量一次当前页（返回全局页序号，0 基） */
+  const measureCurrentIndex = useCallback(() => {
     const nodes = stripRef.current?.querySelectorAll<HTMLElement>("[data-page-index]");
     if (!nodes || nodes.length === 0) {
-      return 1;
+      return 0;
     }
     const index = findCurrentPageIndex(Array.from(nodes, (node) => node.getBoundingClientRect()));
-    const page = index + 1;
-    setCurrentPage(page);
-    return page;
+    setCurrentIndex(index);
+    return index;
   }, []);
 
-  const writeCurrentPage = useCallback(
-    (page: number) => {
+  const writeCurrentIndex = useCallback(
+    (globalIndex: number) => {
+      const { section, pageInChapter } = locate(globalIndex);
       const previous = readProgress(comicSlug);
-      // 读到最后一话最后一页即「已读完」（末页的判定见 isAtScrollBottom 注释）；
-      // 已读完之后再回滚不取消这个标记（F6-7 要求详情页持续显示「已读完」）
-      const reachedLastPage = page >= totalPages || isAtScrollBottom();
-      const finished = (!hasNextChapter && reachedLastPage) || Boolean(previous?.finished);
-      writeProgress(comicSlug, createProgressRecord(chapter, page, finished));
+      // 「已读完」只可能在最后一话成立：本话没有下一话，而且确实读到了末尾。
+      // 末页的判定见 isAtScrollBottom 的注释（字面口径下末页无法成为当前页）。
+      const reachedEnd =
+        section.nextNumber === null &&
+        (pageInChapter >= section.pages.length || isAtScrollBottom());
+      const finished = reachedEnd || Boolean(previous?.finished);
+      writeProgress(comicSlug, createProgressRecord(section.number, pageInChapter, finished));
     },
-    [comicSlug, chapter, totalPages, hasNextChapter],
+    [comicSlug, locate],
+  );
+
+  /** 重新计时：滚动停止 500ms 后写入当前页（storage.md 的防抖口径） */
+  const scheduleWrite = useCallback(
+    (globalIndex: number) => {
+      if (writeTimerRef.current) {
+        clearTimeout(writeTimerRef.current);
+      }
+      writeTimerRef.current = setTimeout(() => {
+        writeTimerRef.current = null;
+        writeCurrentIndex(globalIndex);
+      }, WRITE_DEBOUNCE_MS);
+    },
+    [writeCurrentIndex],
+  );
+
+  // 卸载前不补写：契约只要求「滚动停止 500ms 后写入」，切页/卸载不该额外产生记录
+  useEffect(
+    () => () => {
+      if (writeTimerRef.current) {
+        clearTimeout(writeTimerRef.current);
+        writeTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
+  /** 预取下一话：同一话只请求一次，失败后允许重试 */
+  const loadNextChapter = useCallback(
+    async (target: number) => {
+      if (requestedChapters.current.has(target)) {
+        return;
+      }
+      requestedChapters.current.add(target);
+      setNextStatus("loading");
+      try {
+        const detail = await fetchChapter(comicSlug, target);
+        setNextChapter(detail);
+        setNextStatus("ready");
+      } catch {
+        requestedChapters.current.delete(target);
+        setNextStatus("error");
+      }
+    },
+    [comicSlug],
+  );
+
+  /** 把已拿到的下一话追加到同一条滚动流；顺带把地址栏与顶栏切到新话 */
+  const appendNextChapter = useCallback(
+    (scrollToNewChapter: boolean) => {
+      if (!nextChapter) {
+        return;
+      }
+      const appended = nextChapter;
+      setSections((previous) =>
+        previous.some((section) => section.number === appended.number)
+          ? previous
+          : [
+              ...previous,
+              {
+                number: appended.number,
+                title: appended.title,
+                pages: appended.pages,
+                nextNumber: appended.next,
+              },
+            ],
+      );
+      setNextChapter(null);
+      setNextStatus("idle");
+      if (scrollToNewChapter) {
+        window.requestAnimationFrame(() => {
+          stripRef.current
+            ?.querySelector<HTMLElement>(`[data-section="${appended.number}"]`)
+            ?.scrollIntoView({ block: "start" });
+        });
+      }
+    },
+    [nextChapter],
   );
 
   // 懒加载观察者：只负责把「进入过视口附近」的页标记为可加载
@@ -179,10 +313,9 @@ export function ReaderStrip({
     };
   }, []);
 
-  // 滚动：量当前页 + 500ms 防抖写进度 + 顶栏收起/显示
+  // 滚动：量当前页 + 500ms 防抖写进度 + 顶栏收起/显示 + 预取下一话 + 话末追加
   useEffect(() => {
     let frame = 0;
-    let writeTimer: ReturnType<typeof setTimeout> | null = null;
     let lastY = window.scrollY;
 
     const onScroll = () => {
@@ -199,14 +332,27 @@ export function ReaderStrip({
       }
       frame = window.requestAnimationFrame(() => {
         frame = 0;
-        const page = measureCurrentPage();
-        if (writeTimer) {
-          clearTimeout(writeTimer);
+        const index = measureCurrentIndex();
+        scheduleWrite(index);
+
+        // F5-11：剩余不足一屏时提前把下一话数据取回来（只取数据，图片仍按需加载）
+        const remaining =
+          document.documentElement.scrollHeight - (window.scrollY + window.innerHeight);
+        if (
+          nextNumber !== null &&
+          nextStatus === "idle" &&
+          remaining < window.innerHeight * PREFETCH_REMAINING_SCREENS
+        ) {
+          void loadNextChapter(nextNumber);
         }
-        writeTimer = setTimeout(() => {
-          writeTimer = null;
-          writeCurrentPage(page);
-        }, WRITE_DEBOUNCE_MS);
+
+        // 滚到话末区块时把下一话接上（数据还没到就等它到；等待期间区块保持可见）
+        const block = nextBlockRef.current;
+        if (block && nextChapter && nextStatus === "ready") {
+          if (block.getBoundingClientRect().top < window.innerHeight) {
+            appendNextChapter(false);
+          }
+        }
       });
     };
 
@@ -218,17 +364,21 @@ export function ReaderStrip({
       if (frame !== 0) {
         window.cancelAnimationFrame(frame);
       }
-      if (writeTimer) {
-        // 卸载前不补写：契约只要求「滚动停止 500ms 后写入」
-        clearTimeout(writeTimer);
-      }
     };
-  }, [measureCurrentPage, writeCurrentPage]);
+  }, [
+    measureCurrentIndex,
+    scheduleWrite,
+    nextNumber,
+    nextStatus,
+    nextChapter,
+    loadNextChapter,
+    appendNextChapter,
+  ]);
 
   // 进页时按本机记录落到该页（Q5：该话有进度就从记录页继续）
   useEffect(() => {
     const record = readProgress(comicSlug);
-    if (!record || record.chapter !== chapter || record.page < 2 || record.page > totalPages) {
+    if (!record || record.chapter !== chapter || record.page < 2 || record.page > pages.length) {
       return;
     }
     const node = stripRef.current?.querySelector<HTMLElement>(
@@ -241,13 +391,38 @@ export function ReaderStrip({
       node.scrollIntoView({ block: "start" });
     });
     setRestoredPage(record.page);
-    setCurrentPage(record.page);
+    setCurrentIndex(record.page - 1);
     return () => window.cancelAnimationFrame(frame);
-  }, [comicSlug, chapter, totalPages]);
+  }, [comicSlug, chapter, pages.length]);
+
+  // 地址栏与顶栏跟着「当前读到的这一话」走（F5-4）
+  const active = locate(currentIndex);
+  useEffect(() => {
+    const url = `/comics/${comicSlug}/${active.section.number}`;
+    if (lastSyncedUrl.current === url) {
+      return;
+    }
+    lastSyncedUrl.current = url;
+    /*
+     * 为什么用 history.replaceState 而不是 router.replace(url, { scroll: false })：
+     * router.replace 会触发 Next 的软导航 —— 路由参数从 3 变成 4，本路由会重新渲染，
+     * ReaderStrip 随之被**重新挂载**，它 state 里已经追加进来的第 3 话内容会全部消失。
+     * 实测：3 → 4 时 [data-section="3"] 的 10 个页块数为 0、页数是 1 段，
+     * 「同一条滚动流」直接被破坏（F5-4、F5-6 不成立）。
+     * replaceState 同样是「替换当前历史记录、不新增条目」，但不会触发导航，
+     * 因此追加的内容与滚动位置都保留。代价是 Next 内部的路由状态仍停在进入时的
+     * 那一话：本页不再依赖它（数据与渲染都以 ReaderStrip 的 sections 为准），
+     * 只在用户真的点链接跳转时才由 Next 接管地址栏。已把这条取舍回报架构师。
+     */
+    window.history.replaceState(null, "", url);
+  }, [active.section.number, comicSlug]);
 
   const pageIndexOf = (sectionIndex: number, pageIndex: number) =>
     sections.slice(0, sectionIndex).reduce((sum, section) => sum + section.pages.length, 0) +
     pageIndex;
+
+  const quietButtonClass =
+    "inline-flex min-h-11 items-center justify-center rounded-sm border border-line-control px-4 text-sm-site font-semibold text-ink";
 
   return (
     <>
@@ -267,7 +442,7 @@ export function ReaderStrip({
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm-site font-bold text-ink">{comicTitle}</p>
             <p className="truncate text-label text-ink-3">
-              第 {chapter} 话 · {chapterTitle}
+              第 {active.section.number} 话 · {active.section.title}
             </p>
           </div>
           <Link
@@ -286,7 +461,11 @@ export function ReaderStrip({
         className="mx-auto w-full md:max-w-[720px]"
       >
         {sections.map((section, sectionIndex) => (
-          <section key={section.number} aria-label={`第 ${section.number} 话 ${section.title}`}>
+          <section
+            key={section.number}
+            data-section={section.number}
+            aria-label={`第 ${section.number} 话 ${section.title}`}
+          >
             {sectionIndex > 0 ? (
               <div className="px-4 py-4 md:px-6">
                 <p className="text-label tracking-[0.06em] text-accent">第 {section.number} 话</p>
@@ -331,13 +510,89 @@ export function ReaderStrip({
                 </div>
               );
             })}
+
+            {/* 话末区块：有下一话就接上它，没有就收尾（F5-4、F5-5、F5-7） */}
+            {sectionIndex === sections.length - 1 ? (
+              <div ref={nextBlockRef}>
+                {section.nextNumber === null ? (
+                  <div className="px-4 py-8 md:px-6">
+                    <div className="rounded-md border border-line bg-surface p-6 text-center">
+                      <h2 className="text-h2 font-semibold text-ink">已是最后一话</h2>
+                      <p className="mt-2 text-sm-site text-ink-2">
+                        《{comicTitle}》到这里就读完了，可以回详情页挑别的作品。
+                      </p>
+                      <div className="mt-4 flex flex-wrap justify-center gap-2">
+                        <Link
+                          href={`/comics/${comicSlug}`}
+                          className="inline-flex min-h-11 items-center justify-center rounded-sm bg-accent px-4 text-sm-site font-semibold text-on-accent"
+                        >
+                          返回详情
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+                          className={quietButtonClass}
+                        >
+                          回到顶部
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : nextStatus === "error" ? (
+                  <div className="flex flex-col items-center gap-2 border-y border-line bg-surface px-4 py-6 text-center md:px-6">
+                    <p className="text-h3 font-semibold text-ink">下一话暂时取不到</p>
+                    <p className="text-caption text-ink-2">
+                      网络或数据服务暂时不可用，请稍后重试。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void loadNextChapter(section.nextNumber ?? 0)}
+                      className={quietButtonClass}
+                    >
+                      重试
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (nextStatus === "ready") {
+                        appendNextChapter(true);
+                      } else if (section.nextNumber !== null) {
+                        void loadNextChapter(section.nextNumber);
+                      }
+                    }}
+                    className="flex min-h-[72px] w-full items-center gap-3 border-y border-line bg-surface px-4 py-4 text-left hover:bg-subtle md:px-6"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-label tracking-[0.06em] text-accent">
+                        下一话 · 第 {section.nextNumber} 话
+                      </span>
+                      <span className="mt-1 block truncate text-h3 font-semibold text-ink">
+                        {nextChapter?.number === section.nextNumber
+                          ? nextChapter.title
+                          : "正在准备…"}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-sm-site font-semibold text-accent">
+                      继续阅读
+                    </span>
+                    <span aria-hidden="true" className="shrink-0 text-ink-3">
+                      ›
+                    </span>
+                  </button>
+                )}
+              </div>
+            ) : null}
           </section>
         ))}
-
-        {/* ← T-007：「下一话」区块与下一话页块从这里接上，仍在同一条滚动流里 */}
       </div>
 
-      <ReaderProgressBar chapter={chapter} page={currentPage} totalPages={totalPages} />
+      <ReaderProgressBar
+        chapter={active.section.number}
+        page={active.pageInChapter}
+        totalPages={active.section.pages.length}
+      />
     </>
   );
 }
