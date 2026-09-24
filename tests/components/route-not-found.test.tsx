@@ -7,13 +7,7 @@
  * ========================================================================== */
 
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const routeParams = vi.hoisted(() => ({ value: { slug: "xinghai" } as Record<string, string> }));
-
-vi.mock("next/navigation", () => ({
-  useParams: () => routeParams.value,
-}));
+import { afterEach, describe, expect, it } from "vitest";
 
 import ChapterNotFound from "@/app/comics/[slug]/[chapter]/not-found";
 import ComicNotFound from "@/app/comics/[slug]/not-found";
@@ -33,11 +27,12 @@ describe("comics/[slug]/not-found.tsx", () => {
 
 describe("comics/[slug]/[chapter]/not-found.tsx", () => {
   it("显示「这一话不存在」，并带上返回详情与返回首页两个出口", () => {
-    routeParams.value = { slug: "xinghai" };
-    render(<ChapterNotFound />);
+    render(<ChapterNotFound slug="xinghai" />);
 
     expect(screen.getByRole("heading", { name: "这一话不存在" })).toBeInTheDocument();
     expect(screen.getByText(/地址里的话序号可能被改过/)).toBeInTheDocument();
+    // 与 slug 级文案的区别：这里不能说「这部漫画不存在」（漫画其实是存在的，T-012）
+    expect(screen.queryByText(/这部漫画不存在/)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "返回详情" })).toHaveAttribute(
       "href",
       "/comics/xinghai",
@@ -46,7 +41,6 @@ describe("comics/[slug]/[chapter]/not-found.tsx", () => {
   });
 
   it("读不到 slug 时退回「返回首页」", () => {
-    routeParams.value = {};
     render(<ChapterNotFound />);
 
     expect(screen.queryByRole("link", { name: "返回详情" })).not.toBeInTheDocument();
