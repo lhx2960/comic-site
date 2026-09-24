@@ -27,7 +27,7 @@ describe("comics/[slug]/not-found.tsx", () => {
 
 describe("comics/[slug]/[chapter]/not-found.tsx", () => {
   it("显示「这一话不存在」，并带上返回详情与返回首页两个出口", () => {
-    render(<ChapterNotFound slug="xinghai" />);
+    const { container } = render(<ChapterNotFound slug="xinghai" />);
 
     expect(screen.getByRole("heading", { name: "这一话不存在" })).toBeInTheDocument();
     expect(screen.getByText(/地址里的话序号可能被改过/)).toBeInTheDocument();
@@ -38,6 +38,9 @@ describe("comics/[slug]/[chapter]/not-found.tsx", () => {
       "/comics/xinghai",
     );
     expect(screen.getByRole("link", { name: "返回首页" })).toHaveAttribute("href", "/");
+    // G10：这个状态出现在阅读页路由上，必须走深色阅读域（data-theme="reader"）
+    expect(container.querySelector('[data-theme="reader"]')).not.toBeNull();
+    expect(container.querySelector('[data-theme="reader"]')?.className).toContain("bg-base");
   });
 
   it("读不到 slug 时退回「返回首页」", () => {

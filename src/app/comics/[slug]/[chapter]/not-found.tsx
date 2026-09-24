@@ -9,6 +9,12 @@
  *   2. 仍然作为该路由段的 not-found 边界文件存在（Next 自动识别）；被边界渲染时
  *      收不到 props，出口退化为「返回首页」。
  *
+ * 深色阅读域：整块包在 `data-theme="reader"` 容器里（与阅读页正文同一套语义令牌），
+ * 因为这是阅读页路由上的状态 —— PRD G10 要求阅读页内不出现站点浅色底区块，
+ * ui.md §5.4 也把这个等价空状态画在深色域。容器里的 EmptyState 用的是语义类
+ * （bg-surface / text-ink / border-line-control…），会自动解析成 --r-* 的深色取值，
+ * 因此不需要新造任何色值。
+ *
  * 为什么判定函数放在这里而不是 `page.tsx`：Next 对 page 文件的具名导出有严格校验
  * （只允许 default / metadata / generateMetadata / dynamic 等），多导出一个函数会让
  * `next build` 直接失败（T-012 实测报 TS2344）。放在这个文件里既能被单测直接 import，
@@ -49,21 +55,24 @@ export function classifyReaderRoute({
 
 export default function ChapterNotFound({ slug }: { slug?: string }) {
   return (
-    <main className="mx-auto w-full max-w-[1120px] px-4 py-12 md:px-6">
-      <div className="mx-auto max-w-[42ch]">
-        <EmptyState
-          title="这一话不存在"
-          description="地址里的话序号可能被改过，回详情挑一话吧。"
-          actions={
-            slug
-              ? [
-                  { label: "返回详情", href: `/comics/${slug}` },
-                  { label: "返回首页", href: "/" },
-                ]
-              : [{ label: "返回首页", href: "/" }]
-          }
-        />
-      </div>
-    </main>
+    // 与阅读页正文同一套外壳：min-h-dvh + 深色底 + 主文字色，只是没有底部进度条
+    <div data-theme="reader" className="min-h-dvh bg-base text-ink">
+      <main className="mx-auto w-full max-w-[1120px] px-4 py-12 md:px-6">
+        <div className="mx-auto max-w-[42ch]">
+          <EmptyState
+            title="这一话不存在"
+            description="地址里的话序号可能被改过，回详情挑一话吧。"
+            actions={
+              slug
+                ? [
+                    { label: "返回详情", href: `/comics/${slug}` },
+                    { label: "返回首页", href: "/" },
+                  ]
+                : [{ label: "返回首页", href: "/" }]
+            }
+          />
+        </div>
+      </main>
+    </div>
   );
 }
