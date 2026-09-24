@@ -1,0 +1,149 @@
+/* =============================================================================
+ * 全局样式与设计令牌
+ *
+ * App Router 里只有「根布局引入的 CSS」才算真正的全局样式，所以这个文件只被
+ * src/app/layout.tsx 引入一次，作用于全站。
+ *
+ * 令牌的唯一依据是 docs/specs/ui.md：§4.3 给原始色板与字号/圆角/阴影，
+ * §4.4 再叠一层语义令牌。两段都逐字照搬 ui.md，没有自行调色或改名。
+ *
+ * 组件只消费语义层（bg-surface、text-ink-2、border-line、bg-accent…），
+ * 组件内禁止出现十六进制色值（D-006，质量评审检查项）。
+ * ========================================================================== */
+
+@import "tailwindcss";
+
+@theme {
+  /* —— 浅色站点色板（= ui.md §3.1 的 --c-*）—— */
+  --color-site-bg: #ffffff;
+  --color-site-bg-subtle: #f5f6f8;
+  --color-site-surface: #ffffff;
+  --color-site-surface-hover: #f0f2f5;
+  --color-site-border: #e4e7ec;
+  --color-site-border-strong: #c7ccd4;
+  --color-site-border-input: #7c8493;
+  --color-site-text: #14171f;
+  --color-site-text-secondary: #4a5158;
+  --color-site-text-muted: #666d7a;
+  --color-site-text-disabled: #9ca3af;
+  --color-site-primary: #c2410c;
+  --color-site-primary-hover: #9a3412;
+  --color-site-primary-soft: #fdf1ea;
+  --color-site-primary-soft-border: #f2cdb8;
+  --color-site-danger: #b42318;
+  --color-site-danger-soft: #fef0ef;
+  --color-site-on-primary: #ffffff;
+
+  /* —— 深色阅读域色板（= ui.md §3.2 的 --r-*）—— */
+  --color-reader-bg: #0b0d10;
+  --color-reader-surface: #15181d;
+  --color-reader-surface-2: #1b1f25;
+  --color-reader-border: #262b33;
+  --color-reader-border-strong: #333a44;
+  --color-reader-text: #eceef1;
+  --color-reader-text-secondary: #a9b0ba;
+  --color-reader-text-muted: #949caa;
+  --color-reader-text-disabled: #6e7683;
+  --color-reader-accent: #ff9e7a;
+  --color-reader-on-accent: #101215;
+  --color-reader-accent-soft: #2a1e19;
+  --color-reader-accent-border: #5a3a2c;
+  --color-reader-danger-text: #ffb4a8;
+  --color-reader-danger-soft: #2a1917;
+
+  /* —— 字号 / 行高（手机档基准；桌面档按 ui.md §3.3 用 md: 前缀抬高）—— */
+  --text-display: 26px;
+  --text-display--line-height: 34px;
+  --text-h1: 22px;
+  --text-h1--line-height: 30px;
+  --text-h2: 19px;
+  --text-h2--line-height: 26px;
+  --text-h3: 16px;
+  --text-h3--line-height: 22px;
+  --text-body: 16px;
+  --text-body--line-height: 26px;
+  --text-sm-site: 14px;
+  --text-sm-site--line-height: 22px;
+  --text-caption: 13px;
+  --text-caption--line-height: 20px;
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+
+  /* —— 圆角 / 阴影（两个域通用；阴影只用于浅色域）—— */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+  --shadow-sm: 0 1px 2px rgba(20, 23, 31, 0.06);
+  --shadow-md: 0 4px 12px rgba(20, 23, 31, 0.08);
+
+  /* —— 语义层：浅色域取值（= ui.md §4.4 的 :root 块）——
+     上面两套是「原始色板」，评审时能同时看到两套值；组件只用下面这层语义名，
+     于是同一份组件在两个域里都能用，不必写「阅读页专用样式」。 */
+  --color-base: #ffffff;
+  --color-surface: #ffffff;
+  --color-subtle: #f5f6f8;
+  --color-line: #e4e7ec;
+  --color-line-strong: #c7ccd4;
+  --color-line-control: #7c8493;
+  --color-ink: #14171f;
+  --color-ink-2: #4a5158;
+  --color-ink-3: #666d7a;
+  --color-ink-disabled: #9ca3af;
+  --color-accent: #c2410c;
+  --color-accent-hover: #9a3412;
+  --color-accent-soft: #fdf1ea;
+  --color-accent-soft-line: #f2cdb8;
+  --color-on-accent: #ffffff;
+  --color-danger: #b42318;
+  --color-danger-soft: #fef0ef;
+}
+
+/* -----------------------------------------------------------------------------
+ * 阅读页：只换取值，不换令牌名（= ui.md §4.4 的 [data-theme="reader"] 块）
+ *
+ * 阅读页容器加上 data-theme="reader" 之后，同一个 bg-surface / text-ink 在容器
+ * 内部自动变成深色值，两个域的颜色因此互不污染（design.md §9）。
+ * 这条规则写在 @layer 之外，级别高于 @theme 输出的 :root 变量，覆盖稳定生效。
+ * -------------------------------------------------------------------------- */
+[data-theme="reader"] {
+  color-scheme: dark;
+  --color-base: #0b0d10;
+  --color-surface: #15181d;
+  --color-subtle: #1b1f25;
+  --color-line: #262b33;
+  --color-line-strong: #333a44;
+  --color-line-control: #6e7683;
+  --color-ink: #eceef1;
+  --color-ink-2: #a9b0ba;
+  --color-ink-3: #949caa;
+  --color-ink-disabled: #6e7683;
+  --color-accent: #ff9e7a;
+  --color-accent-hover: #ffb79b;
+  --color-accent-soft: #2a1e19;
+  --color-accent-soft-line: #5a3a2c;
+  --color-on-accent: #101215;
+  --color-danger: #ffb4a8;
+  --color-danger-soft: #2a1917;
+}
+
+@layer base {
+  html {
+    /* 横竖屏切换时不让 iOS 自行放大字号 */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    /* 用 @apply 而不是手写 font-size：正文必须走 --text-body（16/26）。
+       Tailwind 默认的 text-base 是 16/24，会与令牌差 2px 行高（ui.md §4.2）。 */
+    @apply bg-base text-ink font-sans text-body antialiased;
+  }
+
+  /* 键盘可见焦点：所有可点元素统一 3px 主色描边，键盘可达性的前提 */
+  :focus-visible {
+    @apply rounded-xs outline-accent;
+    outline-width: 3px;
+    outline-offset: 2px;
+  }
+}
