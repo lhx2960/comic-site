@@ -7,3 +7,10 @@ out/
 *.log
 .DS_Store
 
+# 构建与测试产物（不要提交）
+*.tsbuildinfo
+coverage/
+test-results/
+playwright-report/
+.vercel
+
