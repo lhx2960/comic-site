@@ -41,6 +41,8 @@ export function SiteHeader({
         ) : (
           <Link
             href="/"
+            // 首页变体里这个链接指向的就是当前页，用 aria-current 明确「你在这里」
+            aria-current="page"
             className="inline-flex min-h-11 shrink-0 items-center gap-2 text-base font-bold text-ink"
           >
             <span aria-hidden="true" className="size-[18px] rounded-xs bg-accent" />

@@ -21,11 +21,12 @@ import ComicNotFound from "@/app/comics/[slug]/not-found";
 afterEach(cleanup);
 
 describe("comics/[slug]/not-found.tsx", () => {
-  it("显示「这部漫画不存在」并给出返回首页的入口", () => {
+  it("显示「这部漫画不存在」并给出「去漫画库」与「返回首页」两个入口", () => {
     render(<ComicNotFound />);
 
     expect(screen.getByRole("heading", { name: "这部漫画不存在" })).toBeInTheDocument();
     expect(screen.getByText(/链接可能被改过/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "去漫画库" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("link", { name: "返回首页" })).toHaveAttribute("href", "/");
   });
 });

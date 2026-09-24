@@ -22,7 +22,12 @@ export default function ComicNotFound() {
         <EmptyState
           title="这部漫画不存在"
           description="链接可能被改过，回首页看看还有哪些作品。"
-          actions={[{ label: "返回首页", href: "/" }]}
+          actions={[
+            // 当前路由结构下「漫画库」就是首页的列表视图（Q1：首页即列表），
+            // 两个入口指向同一地址；保留两个入口是为了给将来的独立漫画库路由留位置。
+            { label: "去漫画库", href: "/" },
+            { label: "返回首页", href: "/" },
+          ]}
         />
       </div>
     </main>

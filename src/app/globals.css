@@ -138,6 +138,7 @@
     /* 用 @apply 而不是手写 font-size：正文必须走 --text-body（16/26）。
        Tailwind 默认的 text-base 是 16/24，会与令牌差 2px 行高（ui.md §4.2）。 */
     @apply bg-base text-ink font-sans text-body antialiased;
+    overscroll-behavior-y: contain; /* T-008b：手机上滚到底继续滑不触发下拉刷新/橡皮筋（必须落在 body） */
   }
 
   /* 键盘可见焦点：所有可点元素统一 3px 主色描边，键盘可达性的前提 */
