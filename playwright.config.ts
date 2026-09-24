@@ -8,18 +8,24 @@
  *    - `webkit` 只跑标题里带 `@webkit` 的关键路径（Safari 内核），
  *      因为 WebKit 在本机与 CI 上启动更慢，全量跑收益低。
  *
- * 2) webServer 用 `pnpm dev`（任务单要求「能在本地对 pnpm dev 起的站点跑用例」）：
- *    端口用 3100 而不是 3000，避免和开发者已经开着的 dev server 抢端口。
- *    `reuseExistingServer` 本地为 true：重复执行 `pnpm e2e` 不必反复冷启动。
+ * 2) webServer 跑的是**生产构建产物**（D-019：E2E 必须验证要发布的产物）：
+ *    命令 = `pnpm build && pnpm start --port 3100`。不再用 `pnpm dev` 的原因是有实证：
+ *    同一份代码在 dev 与 prod 下行为不一致（`/comics/xinghai/9` 的 404 文案一个对一个错，
+ *    见 T-012 回报），而 E2E 是发布前最后一道闸，必须验真身而不是开发态。
  *
- * 3) 超时给得很宽：dev 模式首次访问某个路由要现场编译（几百毫秒到十几秒），
- *    E2E 断言的是行为正确性，不是首字节时间。
+ *    端口固定 3100：本地 `reuseExistingServer` 为 true，已有服务在跑就直接复用
+ *    （所以跑之前要确认 3100 上没有残留的 **dev** server，否则会验成开发态产物）；
+ *    CI 下为 false，永远自己起。
  *
- * 4) 产物目录**必须放在仓库之外**（系统临时目录）。原因不是洁癖，是实测故障：
- *    Playwright 在跑用例时会把 trace/screenshot 分片写进产物目录，而 `next dev`
- *    的文件监听会把这些写入当成源码变更反复重编译；每次重编译都会中断客户端
- *    软导航（RSC 请求被 ERR_ABORTED 掉），表现为「点链接地址栏不动」。
- *    把产物写到仓库外，dev server 就看不到这些写入，用例才能稳定。
+ * 3) 超时：`build` 的耗时计入 webServer.timeout（这里给 5 分钟，本机实测 build 约 30–60s），
+ *    用例内 90s 的 timeout 是留给断言与滚动交互的，不是留给编译的。
+ *
+ * 4) 产物目录**继续放在仓库之外**（系统临时目录，`%TEMP%\comic-site-e2e`）。
+ *    起因是一次实测故障（T-009 报告 F-04）：Playwright 把 trace/screenshot 分片
+ *    写进仓库目录时，`next dev` 的文件监听会把这些写入当成源码变更反复重编译，
+ *    每次重编译都会中断客户端软导航（RSC 请求被 ERR_ABORTED 掉），表现为
+ *    「点链接地址栏不动」。现在 webServer 已经是生产构建（不监听文件），但这条
+ *    仍然保留：① 谁临时切回 dev 就会再次踩坑；② 测试产物本来就不该进版本库。
  *    覆盖产物位置：设置环境变量 E2E_ARTIFACT_DIR。
  * ========================================================================== */
 
@@ -72,10 +78,15 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `pnpm dev --port ${PORT}`,
+    // D-019：验证要发布的产物 —— 先生产构建，再用 next start 起服务
+    command: `pnpm build && pnpm start --port ${PORT}`,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
+    // build + 启动 + 首次探活的总预算（本机实测 build 30–60s）
+    timeout: 300_000,
+    // 把 build/启动日志打到测试输出里，作为「跑的是生产构建」的证据
+    stdout: "pipe",
+    stderr: "pipe",
     env: {
       // 与 next.config.mjs 的默认值一致：别在受限环境里往用户目录写遥测文件
       NEXT_TELEMETRY_DISABLED: "1",
