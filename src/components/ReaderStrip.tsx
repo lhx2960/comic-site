@@ -427,6 +427,9 @@ export function ReaderStrip({
   return (
     <>
       <header
+        // 顶栏收起时它只是「移出视野」，里面的链接仍在 Tab 顺序里 —— 加 inert 让它
+        // 既不可聚焦也不进无障碍树，避免键盘用户 Tab 到一个看不见的按钮（G6）
+        inert={topBarHidden || undefined}
         className={`sticky top-0 z-20 border-b border-line bg-surface/95 backdrop-blur-sm transition-transform duration-200 ${
           topBarHidden ? "-translate-y-full" : "translate-y-0"
         }`}
