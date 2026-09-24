@@ -256,25 +256,45 @@ test.describe("D-016 接下一话的地址同步", () => {
     await expect(page.getByRole("heading", { level: 1, name: "星海拾遗" })).toBeVisible();
   });
 
-  // ── 缺陷留痕（F-01）─────────────────────────────────────────────────────
-  // 这条用例断言的是 PRD F5-4 的完整语义：滚到底部后「继续向下即呈现第 4 话内容」。
-  // 实测不成立：接下一话的判定只写在 scroll 事件回调里，一旦用户在数据回来之前
-  // 就停在文档底部（按 End / 拖滚动条到底 / 甩到底），后面不会再有 scroll 事件，
-  // 第 4 话就一直不接续；必须重新产生位移（例如向上滚一点）才会接上。
-  test("F5-4b【缺陷 F-01】直接跳到底部并停住时，第 4 话应当自动接续", async ({ page }) => {
+  // ── F-01 回归（T-011 修复；T-016 按架构师授权改写断言）────────────────────
+  // 回归的是 T-009 发现的缺陷 F-01：接下一话的判定原先只写在 scroll 事件回调里，
+  // 用户一步滚到文档底部并停住（之后不再产生 scroll 事件）时，第 4 话永远不接续。
+  // T-011 用 effect 补了判定，接续只需几十毫秒。
+  //
+  // T-016 授权改写：删掉原来那句「必须先看到『下一话 · 第 4 话』区块」——它描述的是
+  // 修复前的过渡态（旧实现在这里卡住，所以能稳定看到它），T-011 之后区块一闪就被
+  // 第 4 话内容顶掉，断言变成竞态而非需求。实质语义全部保留并强化：
+  // 一步到底 + 完全停住 → 第 4 话自动接上；继续往下读时顶栏与地址栏同步为第 4 话；
+  // 全程无控制台错误。
+  test("F5-4b 回归（F-01）一步滚到底并停住后，第 4 话自动接续、顶栏与地址栏同步", async ({
+    page,
+  }) => {
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        consoleErrors.push(message.text());
+      }
+    });
+    page.on("pageerror", (error) => consoleErrors.push(`pageerror:${error.message}`));
+
     await page.goto("/comics/xinghai/3");
     await expect(page.locator('img[alt="第 3 话 第 1 页"]')).toBeVisible();
     await page.waitForTimeout(500);
 
+    // 一步到底（等价于：按 End / 拖滚动条到底 / 甩到底），之后完全停住
     await scrollToDocumentBottom(page);
 
-    // 预取已经成功、话末区块已显示第 4 话标题，但内容始终没有接上
-    await expect(page.getByRole("button", { name: /下一话 · 第 4 话/ })).toBeVisible();
-    await expect
-      .poll(() => page.locator('[data-section="4"]').count(), {
-        message: "停在底部时第 4 话也应接续（当前实现不会）",
-        timeout: 8000,
-      })
-      .toBeGreaterThan(0);
+    // F-01 的实质：数据后到、滚动已停，第 4 话仍必须自己接上来
+    await expect(page.locator('[data-section="4"]')).toBeAttached();
+    await expect(sectionBlocks(page, 4)).toHaveCount(10);
+
+    // 继续往下读第 4 话：顶栏与地址栏跟着当前话走（路由不重挂载、内容不断流）
+    await sectionBlocks(page, 4).first().evaluate((element) => {
+      element.scrollIntoView({ block: "start" });
+    });
+    await expect(readerHeader(page)).toContainText("第 4 话");
+    await expect.poll(() => page.url()).toMatch(/\/comics\/xinghai\/4$/);
+
+    expect(consoleErrors, "接续过程不应产生控制台错误").toEqual([]);
   });
 });
