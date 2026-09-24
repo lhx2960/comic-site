@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ReaderProgressBar, progressPercent } from "@/components/ReaderProgressBar";
 import { ReaderStrip, findCurrentPageIndex } from "@/components/ReaderStrip";
 import { PROGRESS_STORAGE_KEY, createProgressRecord, readProgress, writeProgress } from "@/lib/progress";
-import type { ImageRef } from "@/types/comic";
+import type { ChapterDetail, ImageRef } from "@/types/comic";
 
 vi.mock("next/image", () => ({
   default: ({
@@ -98,6 +98,21 @@ const PROPS = {
   chapterTitle: "无人值守的中继站",
   pages,
   hasNextChapter: true,
+};
+
+/** 第 4 话的数据（模拟预取接口的返回体） */
+const chapter4: ChapterDetail = {
+  comic: { slug: "xinghai", title: "星海拾遗" },
+  number: 4,
+  title: "日志第七页",
+  pages: Array.from({ length: 10 }, (_, index) => ({
+    src: `/comics/xinghai/4/${String(index + 1).padStart(3, "0")}.svg`,
+    width: 600,
+    height: 800,
+    alt: `第 4 话 第 ${index + 1} 页`,
+  })),
+  prev: 3,
+  next: 5,
 };
 
 beforeEach(() => {
@@ -262,6 +277,121 @@ describe("ReaderStrip —— 滚动后的进度写入（F6-1、F6-6）", () => {
     unmount();
     act(() => {
       vi.advanceTimersByTime(2000);
+    });
+
+    expect(window.localStorage.getItem(PROGRESS_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("ReaderStrip —— 缺陷 F-01：预取数据后到也要接续", () => {
+  it("停在文档底部、数据在滚动停止之后才 ready，也必须自动接上下一话（不再产生 scroll 事件）", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"],
+    });
+
+    // 让 fetch 挂起：模拟「预取请求已发出，但数据还没回来」
+    let resolveFetch: ((response: unknown) => void) | null = null;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(<ReaderStrip {...PROPS} />);
+
+    // 一步滚到文档底部并停住：此后不再派发任何 scroll 事件
+    window.scrollY = PAGE_HEIGHT * 20;
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+      vi.advanceTimersByTime(32); // 让 rAF 节流回调跑起来（预取在这里发起）
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-section="4"]')).toBeNull();
+
+    // 数据后到（模拟 fetch 在滚动停止之后才返回）
+    await act(async () => {
+      resolveFetch?.({
+        ok: true,
+        json: async () => chapter4,
+      });
+      await Promise.resolve();
+    });
+
+    // 关键断言：没有新的 scroll 事件，第 4 话仍然接上了
+    expect(container.querySelector('[data-section="4"]')).not.toBeNull();
+    expect(container.querySelectorAll('[data-section="4"] [data-page-index]')).toHaveLength(10);
+  });
+});
+
+describe("ReaderStrip —— 接续后地址同步不变（D-016）", () => {
+  it("接上第 4 话之后读进第 4 话，地址栏按 replaceState 同步到 /comics/xinghai/4", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"],
+    });
+
+    let resolveFetch: ((response: unknown) => void) | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+    const replaceSpy = vi.spyOn(window.history, "replaceState");
+
+    const { container } = render(<ReaderStrip {...PROPS} />);
+
+    window.scrollY = PAGE_HEIGHT * 20;
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+      vi.advanceTimersByTime(32);
+    });
+    await act(async () => {
+      resolveFetch?.({ ok: true, json: async () => chapter4 });
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[data-section="4"]')).not.toBeNull();
+
+    // 真正读进第 4 话的第 1 页（此时当前页落在第 4 话）
+    window.scrollY = PAGE_HEIGHT * 10;
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+      vi.advanceTimersByTime(32);
+    });
+
+    expect(replaceSpy).toHaveBeenCalledWith(null, "", "/comics/xinghai/4");
+  });
+});
+
+describe("ReaderStrip —— 缺陷 F-02：进度写入兜底", () => {
+  it("水合前就滚动过、之后没有新的 scroll 事件时，也会把当前页写进本机进度", () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"],
+    });
+
+    // 模拟「用户在水合完成之前就滚到了第 3 页附近」：挂载时 scrollY 已经不是 0
+    window.scrollY = PAGE_HEIGHT * 2;
+    render(<ReaderStrip {...PROPS} />);
+
+    act(() => {
+      vi.advanceTimersByTime(500); // 挂载时补测的那次防抖写入
+    });
+
+    expect(readProgress("xinghai")).toMatchObject({ chapter: 3, page: 3, finished: false });
+  });
+
+  it("没有滚动过时不写记录（避免只打开一页就产生「继续阅读」）", () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"],
+    });
+
+    render(<ReaderStrip {...PROPS} />);
+    act(() => {
+      vi.advanceTimersByTime(1000);
     });
 
     expect(window.localStorage.getItem(PROGRESS_STORAGE_KEY)).toBeNull();

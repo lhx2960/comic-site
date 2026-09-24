@@ -124,6 +124,8 @@ export function ReaderStrip({
   const requestedChapters = useRef(new Set<number>());
   /** 最近一次同步到地址栏的 URL，避免反复 replace 同一个地址 */
   const lastSyncedUrl = useRef<string>(`/comics/${comicSlug}/${chapter}`);
+  /** F-02 兜底只做一次：挂载时补测一次进度，之后交给滚动事件 */
+  const didInitialSyncRef = useRef(false);
   /** 待写进度的定时器。放在 ref 里而不是滚动 effect 的局部变量：
    *  effect 会因为预取状态变化而重订阅，局部变量会导致「正要写就被清掉」。 */
   const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -280,6 +282,28 @@ export function ReaderStrip({
     [nextChapter],
   );
 
+  /** 话末区块是否已经进入视口（部分可见也算） */
+  const isNextBlockInView = useCallback(() => {
+    const block = nextBlockRef.current;
+    return block !== null && block.getBoundingClientRect().top < window.innerHeight;
+  }, []);
+
+  /**
+   * 缺陷 F-01：接续判定不能只写在 scroll 回调里。
+   *
+   * 预取数据常常是在「滚动已经停下来之后」才回来的（按 End / 拖滚动条到底 / 甩到底），
+   * 那一刻不会再产生新的 scroll 事件，scroll 回调里的判定就永远没有机会执行 ——
+   * 于是话末区块明明已经显示「下一话 · 第 4 话」，第 4 话却始终接不上。
+   *
+   * 这里在「数据 ready」这个状态变化时补一次同样的视口判定（思路与懒加载一致：
+   * 都问「这个块现在是不是在视口里」），数据后到也能接上。
+   */
+  useEffect(() => {
+    if (nextStatus === "ready" && nextChapter !== null && isNextBlockInView()) {
+      appendNextChapter(false);
+    }
+  }, [nextStatus, nextChapter, isNextBlockInView, appendNextChapter]);
+
   // 懒加载观察者：只负责把「进入过视口附近」的页标记为可加载
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -358,6 +382,19 @@ export function ReaderStrip({
 
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll);
+
+    /*
+     * 缺陷 F-02 兜底：如果用户是在客户端水合完成**之前**就滚动了（首屏渲染期间抢跑），
+     * 那一次滚动不会被监听器看到，之后若再无 scroll 事件，这一次停顿就永远不落盘。
+     * 挂载后补测一次即可覆盖这条路径；用 ref 保证只做一次，不会因为重订阅而多写。
+     */
+    if (!didInitialSyncRef.current) {
+      didInitialSyncRef.current = true;
+      if (window.scrollY > 0) {
+        scheduleWrite(measureCurrentIndex());
+      }
+    }
+
     return () => {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
