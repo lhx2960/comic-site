@@ -15,11 +15,11 @@
 
 import type { Metadata } from "next";
 import Image from "next/image";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ChapterList } from "@/components/ChapterList";
 import { ProgressCTA } from "@/components/ProgressCTA";
+import { SiteHeader } from "@/components/SiteHeader";
 import { getChapter, getComic, listTags } from "@/lib/data/queries";
 
 export async function generateMetadata({
@@ -54,20 +54,7 @@ export default async function ComicDetailPage({
   return (
     <>
       {/* 顶部条：手机上的简化面包屑，同时满足 G7「非首页都有回首页入口」 */}
-      <header className="sticky top-0 z-20 border-b border-line bg-base/[0.96] backdrop-blur-sm">
-        <div className="mx-auto flex min-h-14 max-w-[1120px] items-center gap-2 px-4 md:px-6">
-          <Link
-            href="/"
-            className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm-site font-semibold text-ink"
-          >
-            <span aria-hidden="true">‹</span> 漫画站
-          </Link>
-          <span aria-hidden="true" className="text-ink-disabled">
-            /
-          </span>
-          <span className="min-w-0 truncate text-sm-site text-ink-2">{comic.title}</span>
-        </div>
-      </header>
+      <SiteHeader backHref="/" current={comic.title} />
 
       <main className="mx-auto w-full max-w-[1120px] px-4 pb-[calc(76px+env(safe-area-inset-bottom,0px))] md:px-6 md:pb-12">
         <div className="md:grid md:grid-cols-[240px_1fr] md:gap-8">

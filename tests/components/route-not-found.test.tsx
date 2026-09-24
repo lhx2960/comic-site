@@ -1,0 +1,54 @@
+// @vitest-environment jsdom
+/* =============================================================================
+ * 逐路由 404 的文案与出路（PRD F4-5、F5-9）
+ *
+ * 「这部漫画不存在」在 comics/[slug]、「这一话不存在」在 comics/[slug]/[chapter]，
+ * 两者都要给出下一步动作。阅读页的那一个用 useParams 读 slug，因此这里给桩件。
+ * ========================================================================== */
+
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const routeParams = vi.hoisted(() => ({ value: { slug: "xinghai" } as Record<string, string> }));
+
+vi.mock("next/navigation", () => ({
+  useParams: () => routeParams.value,
+}));
+
+import ChapterNotFound from "@/app/comics/[slug]/[chapter]/not-found";
+import ComicNotFound from "@/app/comics/[slug]/not-found";
+
+afterEach(cleanup);
+
+describe("comics/[slug]/not-found.tsx", () => {
+  it("显示「这部漫画不存在」并给出返回首页的入口", () => {
+    render(<ComicNotFound />);
+
+    expect(screen.getByRole("heading", { name: "这部漫画不存在" })).toBeInTheDocument();
+    expect(screen.getByText(/链接可能被改过/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "返回首页" })).toHaveAttribute("href", "/");
+  });
+});
+
+describe("comics/[slug]/[chapter]/not-found.tsx", () => {
+  it("显示「这一话不存在」，并带上返回详情与返回首页两个出口", () => {
+    routeParams.value = { slug: "xinghai" };
+    render(<ChapterNotFound />);
+
+    expect(screen.getByRole("heading", { name: "这一话不存在" })).toBeInTheDocument();
+    expect(screen.getByText(/地址里的话序号可能被改过/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "返回详情" })).toHaveAttribute(
+      "href",
+      "/comics/xinghai",
+    );
+    expect(screen.getByRole("link", { name: "返回首页" })).toHaveAttribute("href", "/");
+  });
+
+  it("读不到 slug 时退回「返回首页」", () => {
+    routeParams.value = {};
+    render(<ChapterNotFound />);
+
+    expect(screen.queryByRole("link", { name: "返回详情" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "返回首页" })).toBeInTheDocument();
+  });
+});

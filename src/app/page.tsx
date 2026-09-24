@@ -15,11 +15,13 @@
  * （如实现在 T-004 回报里记录，可留给 T-008 全局收尾时提取）。
  * ========================================================================== */
 
-import Link from "next/link";
-
 import { ComicCard } from "@/components/ComicCard";
+import { ComicGrid } from "@/components/ComicGrid";
 import { EmptyState } from "@/components/EmptyState";
+import { FilterSummary } from "@/components/FilterSummary";
 import { SearchBox } from "@/components/SearchBox";
+import { SectionHeading } from "@/components/SectionHeading";
+import { SiteHeader } from "@/components/SiteHeader";
 import { TagFilter } from "@/components/TagFilter";
 import { listComics, listTags } from "@/lib/data/queries";
 import { hasActiveQuery, parseComicQuery, toSearchString } from "@/lib/search-params";
@@ -46,20 +48,9 @@ export default async function HomePage({
   return (
     <>
       {/* 吸顶头：手机只有一行，滚动时搜索框始终可用（ui.md §5.1） */}
-      <header className="sticky top-0 z-20 border-b border-line bg-base/[0.96] backdrop-blur-sm">
-        <div className="mx-auto flex min-h-14 max-w-[1120px] items-center gap-3 px-4 md:px-6">
-          <Link
-            href="/"
-            className="inline-flex min-h-11 shrink-0 items-center gap-2 text-base font-bold text-ink"
-          >
-            <span aria-hidden="true" className="size-[18px] rounded-xs bg-accent" />
-            漫画站
-          </Link>
-          <div className="min-w-0 flex-1 md:ml-auto md:max-w-[420px]">
-            <SearchBox initialKeyword={query.q ?? ""} activeTag={query.tag} />
-          </div>
-        </div>
-      </header>
+      <SiteHeader>
+        <SearchBox initialKeyword={query.q ?? ""} activeTag={query.tag} />
+      </SiteHeader>
 
       <main className="mx-auto w-full max-w-[1120px] px-4 pb-12 md:px-6">
         <section className="pt-4 md:pt-12">
@@ -71,38 +62,24 @@ export default async function HomePage({
 
         {/* 生效条件摘要：只在真的带着条件时出现（F2-3、F2-4） */}
         {hasFilters ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <p className="text-label tracking-[0.06em] text-ink-3">已选条件</p>
-            {query.q ? (
-              <span className="inline-flex h-8 items-center rounded-pill bg-accent-soft px-3 text-caption text-accent">
-                关键词「{query.q}」
-              </span>
-            ) : null}
-            {selectedTag ? (
-              <span className="inline-flex h-8 items-center rounded-pill bg-accent-soft px-3 text-caption text-accent">
-                标签「{selectedTag.name}」
-              </span>
-            ) : null}
-            <Link
-              // toSearchString({}) 返回空串，必须自己补上根路径 —— 否则 href=""
-              // 会被浏览器当成「当前地址」，点了等于原地刷新，F2-4 就失效了。
-              href={`/${toSearchString({})}`}
-              className="inline-flex min-h-11 items-center rounded-sm border border-line-control px-3 text-sm-site font-semibold text-ink"
-            >
-              清除筛选
-            </Link>
-          </div>
+          <FilterSummary
+            conditions={[
+              ...(query.q ? [`关键词「${query.q}」`] : []),
+              ...(selectedTag ? [`标签「${selectedTag.name}」`] : []),
+            ]}
+            // toSearchString({}) 返回空串，必须补上根路径 —— 否则 href="" 会被浏览器
+            // 当成「当前地址」，点了等于原地刷新，F2-4 就失效了。
+            clearHref={`/${toSearchString({})}`}
+          />
         ) : null}
 
-        <div className="mt-6 mb-3 flex flex-wrap items-baseline gap-2">
-          <h2 className="text-h2 font-semibold text-ink">
-            {hasFilters ? "筛选结果" : "全部漫画"}
-          </h2>
-          <p className="text-sm-site text-ink-3">共 {comics.length} 部</p>
-        </div>
+        <SectionHeading
+          title={hasFilters ? "筛选结果" : "全部漫画"}
+          countLabel={`共 ${comics.length} 部`}
+        />
 
         {comics.length > 0 ? (
-          <ul className="grid grid-cols-2 gap-3 md:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] md:gap-6">
+          <ComicGrid>
             {comics.map((comic, index) => (
               <li key={comic.slug}>
                 <ComicCard
@@ -112,7 +89,7 @@ export default async function HomePage({
                 />
               </li>
             ))}
-          </ul>
+          </ComicGrid>
         ) : hasFilters ? (
           // F2-9：关键词与标签的交集为空。保留条件摘要，让用户看得见是哪个条件导致的
           <EmptyState

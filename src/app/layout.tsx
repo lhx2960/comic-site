@@ -40,8 +40,14 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-CN">
-      {/* bg-base / text-ink 是 @theme 语义层生成的令牌类，颜色只在这一处流转 */}
-      <body className="min-h-dvh bg-base font-sans text-ink antialiased">{children}</body>
+      {/*
+        bg-base / text-ink 是 @theme 语义层生成的令牌类，颜色只在这一处流转。
+        overscroll-behavior-y: contain 只能写在 html/body 上才管用（写在页面容器里
+        对文档滚动无效）：阅读页滚到底继续滑时不会触发下拉刷新与橡皮筋（T-008 第 9 条）。
+      */}
+      <body className="min-h-dvh bg-base font-sans text-ink antialiased [overscroll-behavior-y:contain]">
+        {children}
+      </body>
     </html>
   );
 }
