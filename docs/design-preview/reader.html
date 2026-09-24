@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>T-002 设计预览 · 阅读页（深色）</title>
+<!--
+  设计预览稿（T-002）：静态 HTML，不依赖构建工具、不引任何外部资源。
+  本页是本期核心页面：进入阅读页切到深色样式域（D-006），纵向长条滚动（D-004），滚到底接下一话。
+  图片全部用 CSS 色块占位，并显式声明 aspect-ratio:3/4，保证图片未加载完也不会引起滚动布局跳动。
+-->
+<style>
+  /* ===== 设计令牌（深色阅读页，对应 ui.md §2.2） ===== */
+  :root{
+    --r-bg:#0B0D10; --r-surface:#15181D; --r-surface-2:#1B1F25; --r-border:#262B33; --r-border-strong:#333A44;
+    --r-text:#ECEEF1; --r-text-secondary:#A9B0BA; --r-text-muted:#949CAA; --r-text-disabled:#6E7683;
+    --r-accent:#FF9E7A; --r-accent-soft:#2A1E19; --r-accent-border:#5A3A2C; --r-danger-text:#FFB4A8; --r-danger-soft:#2A1917;
+    --fs-h1:22px; --lh-h1:30px; --fs-h2:20px; --lh-h2:28px; --fs-h3:17px; --lh-h3:24px;
+    --fs-body:16px; --lh-body:26px; --fs-sm:14px; --lh-sm:22px;
+    --fs-caption:13px; --lh-caption:20px; --fs-label:12px; --lh-label:16px;
+    --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px; --sp-8:64px;
+    --rad-xs:6px; --rad-sm:10px; --rad-md:14px; --rad-pill:999px;
+    --reader-max:720px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--r-bg); color:var(--r-text);
+    font:var(--fs-body)/var(--lh-body) -apple-system,"Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;}
+  a{color:inherit; text-decoration:none}
+  /* 深色域里的焦点环：亮色描边 + 深色内环，保证在图片块上也看得见 */
+  :focus-visible{ outline:3px solid var(--r-accent); outline-offset:2px; border-radius:var(--rad-xs); }
+
+  /* ===== 顶部条（sticky）：返回 + 漫画名 + 话序号 + 阅读进度 ===== */
+  .reader-bar{ position:sticky; top:0; z-index:20; background:rgba(21,24,29,.96); border-bottom:1px solid var(--r-border); backdrop-filter:blur(6px); }
+  .bar-inner{ max-width:var(--reader-max); margin:0 auto; padding:var(--sp-2) var(--sp-4); display:flex; align-items:center; gap:var(--sp-3); }
+  .bar-inner .back{ min-height:44px; display:inline-flex; align-items:center; gap:var(--sp-2); padding:0 var(--sp-2); color:var(--r-text-secondary); font-size:var(--fs-sm); }
+  .bar-inner .back:hover{ color:var(--r-text); }
+  .bar-title{ min-width:0; flex:1 1 auto; }
+  .bar-title .name{ display:block; font-size:var(--fs-sm); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar-title .chap{ display:block; color:var(--r-text-muted); font-size:var(--fs-label); line-height:var(--lh-label); }
+  .bar-progress{ position:absolute; left:0; right:0; bottom:-1px; height:3px; background:transparent; }
+  .bar-progress span{ display:block; width:62%; height:100%; background:var(--r-accent); }
+
+  /* ===== 图片列：手机满宽、桌面居中限宽，占位比例 3:4 ===== */
+  .pages{ max-width:var(--reader-max); margin:0 auto; padding:var(--sp-2) 0 0; }
+  .page-block{ position:relative; aspect-ratio:3/4; background:linear-gradient(160deg,#1A1E24 0%,#23282F 100%);
+    border:1px solid var(--r-border); border-radius:var(--rad-sm); margin:var(--sp-3) var(--sp-3) 0; display:flex; align-items:center; justify-content:center; }
+  .page-block .label{ color:var(--r-text-muted); font-size:var(--fs-caption); letter-spacing:.06em; }
+  .page-block .keep{ position:absolute; left:var(--sp-3); top:var(--sp-3); color:var(--r-text-disabled); font-size:var(--fs-label); }
+  @media (min-width:768px){ .page-block{ margin:var(--sp-4) 0 0; } }
+
+  /* 浮动进度提示：右下角，滚动时常驻，可点回顶部 */
+  .fab-progress{ position:fixed; right:var(--sp-4); bottom:var(--sp-4); z-index:30;
+    min-height:44px; display:inline-flex; align-items:center; gap:var(--sp-2); padding:0 var(--sp-4);
+    border-radius:var(--rad-pill); background:var(--r-surface); border:1px solid var(--r-border-strong);
+    color:var(--r-text-secondary); font-size:var(--fs-caption); box-shadow:0 6px 20px rgba(0,0,0,.45); }
+  .fab-progress .num{ color:var(--r-text); font-weight:600; }
+
+  /* ===== 话末：读完 + 下一话入口 ===== */
+  .chapter-end{ max-width:var(--reader-max); margin:var(--sp-6) auto 0; padding:0 var(--sp-4); }
+  .end-line{ display:flex; align-items:center; gap:var(--sp-3); color:var(--r-text-muted); font-size:var(--fs-caption); }
+  .end-line::before,.end-line::after{ content:""; height:1px; background:var(--r-border); flex:1 1 auto; }
+  .next-card{ margin-top:var(--sp-4); padding:var(--sp-5); background:var(--r-surface); border:1px solid var(--r-border); border-radius:var(--rad-md); }
+  .next-card .kicker{ margin:0 0 var(--sp-2); color:var(--r-accent); font-size:var(--fs-label); letter-spacing:.08em; }
+  .next-card h2{ margin:0 0 var(--sp-2); font-size:var(--fs-h2); line-height:var(--lh-h2); }
+  .next-card p{ margin:0 0 var(--sp-4); color:var(--r-text-secondary); font-size:var(--fs-sm); line-height:var(--lh-sm); }
+  .btn{ min-height:44px; padding:0 var(--sp-5); border-radius:var(--rad-sm); border:1px solid transparent;
+    font:600 var(--fs-sm)/1 inherit; font-family:inherit; cursor:pointer; }
+  .btn-accent{ background:var(--r-accent); color:#101215; }
+  .btn-ghost{ background:transparent; color:var(--r-text); border-color:var(--r-border-strong); }
+  .next-actions{ display:flex; flex-wrap:wrap; gap:var(--sp-3); }
+  .auto-hint{ margin:var(--sp-4) 0 0; color:var(--r-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+
+  /* 下一话内容继续排在同一条滚动流里（顶部条标题在滚动跨过时更新） */
+  .next-chapter-head{ max-width:var(--reader-max); margin:var(--sp-6) auto 0; padding:0 var(--sp-4); }
+  .next-chapter-head .kicker{ margin:0; color:var(--r-text-muted); font-size:var(--fs-label); letter-spacing:.08em; }
+  .next-chapter-head h3{ margin:var(--sp-2) 0 0; font-size:var(--fs-h3); line-height:var(--lh-h3); }
+
+  /* ===== 最后一话收尾 ===== */
+  .last-end{ max-width:var(--reader-max); margin:var(--sp-6) auto 0; padding:0 var(--sp-4); }
+  .last-card{ margin-top:var(--sp-4); padding:var(--sp-5); background:var(--r-surface); border:1px solid var(--r-border); border-radius:var(--rad-md); text-align:center; }
+  .last-card h2{ margin:0 0 var(--sp-2); font-size:var(--fs-h2); line-height:var(--lh-h2); }
+  .last-card p{ margin:0 0 var(--sp-4); color:var(--r-text-secondary); font-size:var(--fs-sm); }
+  .last-card .actions{ display:flex; flex-wrap:wrap; gap:var(--sp-3); justify-content:center; }
+
+  /* ===== 状态示例区（深色底上的补充说明区） ===== */
+  .states{ margin-top:var(--sp-7); border-top:1px dashed var(--r-border-strong); background:#0E1116; }
+  .states-inner{ max-width:var(--reader-max); margin:0 auto; padding:var(--sp-5) var(--sp-4) var(--sp-6); }
+  .states h2{ margin:0 0 var(--sp-2); font-size:var(--fs-h3); line-height:var(--lh-h3); }
+  .states .note{ margin:0 0 var(--sp-4); color:var(--r-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  .state-grid{ display:grid; gap:var(--sp-4); grid-template-columns:1fr; }
+  @media (min-width:900px){ .state-grid{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+  .state-card{ background:var(--r-surface); border:1px solid var(--r-border); border-radius:var(--rad-md); padding:var(--sp-4); }
+  .state-card h4{ margin:0 0 var(--sp-3); font-size:var(--fs-sm); }
+  .state-card h4 span{ color:var(--r-text-muted); font-weight:400; }
+  .sk-page{ aspect-ratio:3/4; border-radius:var(--rad-sm); background:linear-gradient(160deg,#1E232A,#262C34); border:1px solid var(--r-border); }
+  .page-fail{ aspect-ratio:3/4; border-radius:var(--rad-sm); border:1px dashed var(--r-border-strong); background:var(--r-surface-2);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--sp-3); text-align:center; padding:var(--sp-4); }
+  .page-fail .title{ font-size:var(--fs-sm); color:var(--r-text-secondary); }
+  .page-fail .desc{ font-size:var(--fs-caption); color:var(--r-text-muted); }
+  .err-inline{ display:flex; gap:var(--sp-3); align-items:flex-start; }
+  .err-inline .dot{ flex:0 0 auto; width:28px; height:28px; border-radius:var(--rad-pill); background:var(--r-danger-soft); color:var(--r-danger-text); display:flex; align-items:center; justify-content:center; font-weight:700; }
+  .err-inline .title{ margin:0 0 var(--sp-1); font-weight:600; font-size:var(--fs-sm); }
+  .err-inline .desc{ margin:0 0 var(--sp-4); color:var(--r-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  footer.note-foot{ padding:var(--sp-5) var(--sp-4) var(--sp-6); max-width:var(--reader-max); margin:0 auto; color:var(--r-text-muted); font-size:var(--fs-caption); }
+</style>
+</head>
+<body>
+
+<header class="reader-bar">
+  <div class="bar-inner">
+    <a class="back" href="#"><span aria-hidden="true">‹</span> 详情</a>
+    <div class="bar-title">
+      <span class="name">星海拾荒者</span>
+      <span class="chap">第 3 话 · 三号环轨道 · 共 10 页</span>
+    </div>
+  </div>
+  <div class="bar-progress" role="progressbar" aria-label="本话阅读进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62"><span></span></div>
+</header>
+
+<main>
+  <div class="pages" aria-label="第 3 话内容">
+    <div class="page-block" role="img" aria-label="第 3 话第 1 页占位图"><span class="keep">03-01</span><span class="label">第 3 话 · 第 1 页 · 占位 3:4</span></div>
+    <div class="page-block" role="img" aria-label="第 3 话第 2 页占位图"><span class="keep">03-02</span><span class="label">第 3 话 · 第 2 页 · 占位 3:4</span></div>
+    <div class="page-block" role="img" aria-label="第 3 话第 3 页占位图"><span class="keep">03-03</span><span class="label">第 3 话 · 第 3 页 · 占位 3:4</span></div>
+    <div class="page-block" role="img" aria-label="第 3 话第 4 页占位图"><span class="keep">03-04</span><span class="label">第 3 话 · 第 4 页 · 占位 3:4</span></div>
+    <div class="page-block" role="img" aria-label="第 3 话第 5 页占位图"><span class="keep">03-05</span><span class="label">第 3 话 · 第 5 页 · 占位 3:4</span></div>
+    <div class="page-block" role="img" aria-label="第 3 话第 6 页占位图"><span class="keep">03-06</span><span class="label">第 3 话 · 第 6 页 · 占位 3:4（当前阅读位置）</span></div>
+    <div class="page-block" role="img" aria-label="第 3 话第 7 页占位图"><span class="keep">03-07</span><span class="label">第 3 话 · 第 7 页 · 占位 3:4</span></div>
+    <div class="page-block" role="img" aria-label="第 3 话第 8 页占位图"><span class="keep">03-08</span><span class="label">第 3 话 · 第 8 页 · 占位 3:4</span></div>
+    <div class="page-block" role="img" aria-label="第 3 话第 9 页占位图"><span class="keep">03-09</span><span class="label">第 3 话 · 第 9 页 · 占位 3:4</span></div>
+    <div class="page-block" role="img" aria-label="第 3 话第 10 页占位图"><span class="keep">03-10</span><span class="label">第 3 话 · 第 10 页 · 占位 3:4</span></div>
+  </div>
+
+  <span class="fab-progress" role="status"><span class="num">6</span>/ 10 · 第 3 话</span>
+
+  <section class="chapter-end">
+    <p class="end-line">第 3 话 · 已读完</p>
+    <div class="next-card">
+      <p class="kicker">下一话</p>
+      <h2>第 4 话　无名船坞</h2>
+      <p>继续向下滚动即进入第 4 话，顶部标题会同时更新为「第 4 话」。</p>
+      <div class="next-actions">
+        <button class="btn btn-accent" type="button">继续阅读第 4 话</button>
+        <button class="btn btn-ghost" type="button">回到详情</button>
+      </div>
+      <p class="auto-hint">第 4 话会在后台预加载第 1 页，滚到这里时无需等待。</p>
+    </div>
+  </section>
+
+  <section class="next-chapter-head">
+    <p class="kicker">第 4 话</p>
+    <h3>无名船坞</h3>
+  </section>
+  <div class="pages" aria-label="第 4 话内容（接续在同一滚动流）">
+    <div class="page-block" role="img" aria-label="第 4 话第 1 页占位图"><span class="keep">04-01</span><span class="label">第 4 话 · 第 1 页 · 占位 3:4</span></div>
+    <div class="page-block" role="img" aria-label="第 4 话第 2 页占位图"><span class="keep">04-02</span><span class="label">第 4 话 · 第 2 页 · 占位 3:4</span></div>
+  </div>
+
+  <section class="last-end">
+    <p class="end-line">第 5 话 · 已读完</p>
+    <div class="last-card">
+      <h2>已是最后一话</h2>
+      <p>《星海拾荒者》到这里就读完了，可以回详情挑别的作品。</p>
+      <div class="actions">
+        <button class="btn btn-accent" type="button">返回详情</button>
+        <button class="btn btn-ghost" type="button">回到顶部</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="states">
+    <div class="states-inner">
+      <h2>状态示例（设计稿补充区，不属于页面内容）</h2>
+      <p class="note">阅读页三种状态：加载中（骨架页块，比例与真实页一致，不引起跳动）、单页图片失败（只降级那一页，其余页继续可读）、整话加载失败 / 这一话不存在。</p>
+      <div class="state-grid">
+        <div class="state-card">
+          <h4>加载中 <span>· 骨架页块</span></h4>
+          <div class="sk-page" role="status" aria-label="第 3 话正在加载"></div>
+          <p class="desc" style="color:var(--r-text-muted);font-size:var(--fs-caption);margin:12px 0 0">第 3 话正在加载…</p>
+        </div>
+        <div class="state-card">
+          <h4>单页图片失败 <span>· 只降级这一页</span></h4>
+          <div class="page-fail">
+            <span class="title">第 3 话 · 第 6 页加载失败</span>
+            <span class="desc">其余页面不受影响，可以继续往下读。</span>
+            <button class="btn btn-ghost" type="button">重试这一页</button>
+          </div>
+        </div>
+        <div class="state-card">
+          <h4>整话失败 / 不存在 <span>· 两种情况</span></h4>
+          <div class="err-inline">
+            <span class="dot" aria-hidden="true">!</span>
+            <div>
+              <p class="title">这一话加载失败</p>
+              <p class="desc">网络或数据服务暂时不可用，可以重试或先回详情。</p>
+              <button class="btn btn-accent" type="button">重试</button>
+              <button class="btn btn-ghost" type="button" style="margin-left:12px">返回详情</button>
+            </div>
+          </div>
+          <div class="err-inline" style="margin-top:24px">
+            <span class="dot" aria-hidden="true">?</span>
+            <div>
+              <p class="title">这一话不存在</p>
+              <p class="desc">地址里的话序号可能被改过，回详情挑一话吧。</p>
+              <button class="btn btn-ghost" type="button">返回详情</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="note-foot">T-002 设计预览 · 静态稿，仅用于设计定稿评审，不代表最终实现。</footer>
+
+</body>
+</html>

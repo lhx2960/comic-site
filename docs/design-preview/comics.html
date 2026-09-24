@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>T-002 设计预览 · 漫画列表 + 搜索 + 标签筛选</title>
+<!--
+  设计预览稿（T-002）：静态 HTML，不依赖构建工具、不引任何外部资源。
+  本页演示「关键词 + 标签」组合筛选的状态：搜索框有关键词、标签 chip 为选中态、筛选条与结果计数同步更新。
+  路由写法沿用 D-005 的 /comics?q=...&tag=...；Q1（首页与列表是否同一视图）未定稿，见 ui.md §9 遗留问题。
+-->
+<style>
+  /* ===== 设计令牌（浅色站点，对应 ui.md §2.1） ===== */
+  :root{
+    --c-bg:#FFFFFF; --c-bg-subtle:#F5F6F8; --c-surface:#FFFFFF; --c-surface-hover:#F0F2F5;
+    --c-border:#E4E7EC; --c-border-strong:#C7CCD4; --c-border-input:#7C8493;
+    --c-text:#14171F; --c-text-secondary:#4A5158; --c-text-muted:#666D7A; --c-text-disabled:#9CA3AF;
+    --c-primary:#C2410C; --c-primary-hover:#9A3412; --c-primary-soft:#FDF1EA; --c-primary-soft-border:#F2CDB8;
+    --c-danger:#B42318; --c-danger-soft:#FEF0EF;
+    --fs-h1:24px; --lh-h1:32px; --fs-h2:20px; --lh-h2:28px; --fs-h3:17px; --lh-h3:24px;
+    --fs-body:16px; --lh-body:26px; --fs-sm:14px; --lh-sm:22px;
+    --fs-caption:13px; --lh-caption:20px; --fs-label:12px; --lh-label:16px;
+    --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px;
+    --r-xs:6px; --r-sm:10px; --r-md:14px; --r-pill:999px;
+    --sh-sm:0 1px 2px rgba(20,23,31,.06); --sh-md:0 4px 12px rgba(20,23,31,.08);
+    --container:1120px; --gutter:16px;
+  }
+  @media (min-width:768px){ :root{ --gutter:24px; } }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--c-bg); color:var(--c-text);
+    font:var(--fs-body)/var(--lh-body) -apple-system,"Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;}
+  a{color:inherit; text-decoration:none}
+  :focus-visible{ outline:3px solid var(--c-primary); outline-offset:2px; border-radius:var(--r-xs); }
+  .wrap{ max-width:var(--container); margin:0 auto; padding:0 var(--gutter); }
+
+  header.site{ border-bottom:1px solid var(--c-border); background:var(--c-surface); position:sticky; top:0; z-index:10; }
+  .site-inner{ display:flex; align-items:center; gap:var(--sp-4); min-height:64px; }
+  .brand{ display:flex; align-items:center; gap:var(--sp-2); font-weight:700; font-size:18px; }
+  .brand .mark{ width:20px; height:20px; border-radius:var(--r-xs); background:linear-gradient(135deg,var(--c-primary),#E8763F); }
+  .site-nav{ margin-left:auto; display:flex; align-items:center; gap:var(--sp-2); }
+  .nav-link{ min-height:44px; display:inline-flex; align-items:center; padding:0 var(--sp-3); border-radius:var(--r-sm); color:var(--c-text-secondary); font-size:var(--fs-sm); }
+  .nav-link[aria-current="page"]{ color:var(--c-text); font-weight:600; background:var(--c-bg-subtle); }
+  .icon-btn{ width:44px; height:44px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--c-border-input); background:var(--c-surface); border-radius:var(--r-sm); cursor:pointer; color:var(--c-text-secondary); }
+  @media (min-width:768px){ .icon-btn.only-mobile{ display:none; } }
+
+  /* 面包屑：除首页外每个页面都要有回首页入口（G7） */
+  .crumbs{ padding:var(--sp-4) 0 0; color:var(--c-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  .crumbs a{ min-height:44px; display:inline-flex; align-items:center; padding-right:var(--sp-2); }
+
+  .page-head{ padding:var(--sp-4) 0 var(--sp-5); }
+  .page-head h1{ margin:0 0 var(--sp-2); font-size:var(--fs-h1); line-height:var(--lh-h1); }
+  .page-head .sub{ margin:0; color:var(--c-text-secondary); font-size:var(--fs-sm); line-height:var(--lh-sm); }
+
+  /* ===== 搜索 + 筛选区 ===== */
+  .panel{ border:1px solid var(--c-border); border-radius:var(--r-md); background:var(--c-surface); box-shadow:var(--sh-sm); padding:var(--sp-4); }
+  .search{ display:flex; gap:var(--sp-2); }
+  .search .field{ position:relative; flex:1 1 auto; min-width:0; }
+  .search input{ width:100%; min-height:44px; padding:10px 44px 10px var(--sp-4); color:var(--c-text);
+    border:1px solid var(--c-border-input); border-radius:var(--r-sm); background:var(--c-surface); font:inherit; font-size:var(--fs-body); }
+  .search input::placeholder{ color:var(--c-text-muted); }
+  /* 清除关键词：紧贴输入框右侧的 44×44 可点区 */
+  .search .clear{ position:absolute; top:0; right:0; width:44px; height:44px; border:0; background:transparent; color:var(--c-text-muted); font-size:18px; cursor:pointer; }
+  .btn{ min-height:44px; padding:0 var(--sp-5); border-radius:var(--r-sm); border:1px solid transparent;
+    font:600 var(--fs-sm)/1 inherit; font-family:inherit; cursor:pointer; white-space:nowrap; }
+  .btn-primary{ background:var(--c-primary); color:#FFFFFF; }
+  .btn-secondary{ background:var(--c-surface); color:var(--c-text); border-color:var(--c-border-input); }
+  .btn-text{ background:transparent; color:var(--c-primary-hover); padding:0 var(--sp-3); }
+  @media (max-width:480px){ .search .submit{ flex:0 0 auto; padding:0 var(--sp-4); } }
+
+  .filter-row{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-2); margin-top:var(--sp-4); }
+  .filter-label{ color:var(--c-text-secondary); font-size:var(--fs-label); letter-spacing:.04em; }
+  .active-chip{ min-height:36px; display:inline-flex; align-items:center; gap:var(--sp-2); padding:0 var(--sp-3);
+    border-radius:var(--r-pill); background:var(--c-primary-soft); border:1px solid var(--c-primary-soft-border);
+    color:var(--c-primary-hover); font-size:var(--fs-caption); font-weight:600; }
+  .active-chip .x{ font-weight:700; }
+
+  .chip-row{ display:flex; flex-wrap:wrap; gap:var(--sp-2); margin-top:var(--sp-4); }
+  .chip{ min-height:44px; display:inline-flex; align-items:center; gap:var(--sp-2); padding:0 var(--sp-4);
+    border-radius:var(--r-pill); border:1px solid var(--c-border-strong); background:var(--c-surface);
+    color:var(--c-text-secondary); font-size:var(--fs-sm); cursor:pointer; }
+  .chip .count{ color:var(--c-text-muted); font-size:var(--fs-caption); }
+  .chip[aria-pressed="true"]{ background:var(--c-primary-soft); border-color:var(--c-primary-soft-border); color:var(--c-primary-hover); font-weight:600; }
+
+  /* ===== 结果区 ===== */
+  .result-head{ display:flex; flex-wrap:wrap; align-items:baseline; gap:var(--sp-3); margin:var(--sp-6) 0 var(--sp-4); }
+  .result-head h2{ margin:0; font-size:var(--fs-h2); line-height:var(--lh-h2); }
+  .result-head .count{ color:var(--c-text-muted); font-size:var(--fs-sm); }
+  .result-head .cond{ color:var(--c-text-secondary); font-size:var(--fs-sm); }
+  .cards{ display:grid; gap:var(--sp-4); grid-template-columns:1fr; }
+  .card{ display:grid; grid-template-columns:88px 1fr; gap:var(--sp-4); padding:var(--sp-3);
+    border:1px solid var(--c-border); border-radius:var(--r-md); background:var(--c-surface); box-shadow:var(--sh-sm); cursor:pointer; }
+  .cover{ position:relative; aspect-ratio:2/3; border-radius:var(--r-sm); overflow:hidden;
+    background:linear-gradient(150deg,#EDEFF3 0%,#DCE1E8 100%); border:1px solid var(--c-border); display:flex; align-items:flex-end; }
+  .cover .ph-label{ margin:var(--sp-2); padding:2px var(--sp-2); border-radius:var(--r-xs);
+    background:rgba(255,255,255,.86); color:var(--c-text-muted); font-size:var(--fs-label); line-height:var(--lh-label); }
+  .card-body{ min-width:0; display:flex; flex-direction:column; gap:var(--sp-2); }
+  .card h3{ margin:0; font-size:var(--fs-h3); line-height:var(--lh-h3); }
+  .meta{ color:var(--c-text-muted); font-size:var(--fs-sm); margin:0; }
+  .tags-inline{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+  .tag-static{ padding:4px var(--sp-3); border-radius:var(--r-pill); background:var(--c-bg-subtle);
+    border:1px solid var(--c-border); color:var(--c-text-secondary); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  .tag-static.match{ background:var(--c-primary-soft); border-color:var(--c-primary-soft-border); color:var(--c-primary-hover); }
+  .card .hint{ margin-top:auto; color:var(--c-text-muted); font-size:var(--fs-caption); }
+  @media (min-width:768px){
+    .cards{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--sp-5); }
+    .card{ grid-template-columns:1fr; padding:var(--sp-4); }
+    .card:hover{ transform:translateY(-2px); box-shadow:var(--sh-md); border-color:var(--c-border-strong); transition:transform .15s ease, box-shadow .15s ease; }
+    .panel{ padding:var(--sp-5); }
+    .search{ max-width:640px; }
+  }
+
+  /* ===== 状态示例区 ===== */
+  .states{ margin-top:var(--sp-7); border-top:1px dashed var(--c-border-strong); background:var(--c-bg-subtle); }
+  .states .states-inner{ padding:var(--sp-5) var(--gutter) var(--sp-6); max-width:var(--container); margin:0 auto; }
+  .states h2{ margin:0 0 var(--sp-2); font-size:var(--fs-h3); line-height:var(--lh-h3); }
+  .states .note{ margin:0 0 var(--sp-4); color:var(--c-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  .state-grid{ display:grid; gap:var(--sp-4); grid-template-columns:1fr; }
+  @media (min-width:768px){ .state-grid{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+  .state-card{ background:var(--c-surface); border:1px solid var(--c-border); border-radius:var(--r-md); padding:var(--sp-4); }
+  .state-card h4{ margin:0 0 var(--sp-3); font-size:var(--fs-sm); }
+  .state-card h4 span{ color:var(--c-text-muted); font-weight:400; }
+  .empty-box{ text-align:center; padding:var(--sp-3) 0; }
+  .empty-box .glyph{ width:48px; height:48px; margin:0 auto var(--sp-3); border-radius:var(--r-sm); border:1px dashed var(--c-border-strong); background:var(--c-surface-hover); }
+  .empty-box .title{ margin:0 0 var(--sp-1); font-weight:600; font-size:var(--fs-sm); }
+  .empty-box .desc{ margin:0 0 var(--sp-4); color:var(--c-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  .empty-box .actions{ display:flex; flex-wrap:wrap; gap:var(--sp-2); justify-content:center; }
+  .empty-box .again{ margin:var(--sp-4) 0 0; color:var(--c-text-muted); font-size:var(--fs-caption); }
+  .empty-box .again button{ min-height:36px; padding:0 var(--sp-3); border-radius:var(--r-pill);
+    border:1px solid var(--c-border-strong); background:var(--c-surface); color:var(--c-text-secondary); font:inherit; font-size:var(--fs-caption); cursor:pointer; margin-left:var(--sp-2); }
+  .sk-card{ border:1px solid var(--c-border); border-radius:var(--r-md); padding:var(--sp-3); display:grid; grid-template-columns:88px 1fr; gap:var(--sp-4); }
+  .sk-cover{ aspect-ratio:2/3; border-radius:var(--r-sm); background:linear-gradient(150deg,#EDEFF3,#E4E8EE); }
+  .sk-lines{ display:flex; flex-direction:column; gap:var(--sp-3); padding-top:var(--sp-2); }
+  .sk-line{ height:14px; border-radius:var(--r-xs); background:linear-gradient(90deg,#EDEFF3,#E2E7ED,#EDEFF3); }
+  .sk-line.w70{ width:70%; } .sk-line.w45{ width:45%; } .sk-line.w90{ width:90%; }
+  .loadbar{ height:3px; border-radius:var(--r-pill); background:var(--c-primary-soft); overflow:hidden; margin-bottom:var(--sp-4); }
+  .loadbar span{ display:block; width:40%; height:100%; background:var(--c-primary); }
+  .error-box{ display:flex; gap:var(--sp-3); align-items:flex-start; }
+  .error-box .dot{ flex:0 0 auto; width:28px; height:28px; border-radius:var(--r-pill); background:var(--c-danger-soft); color:var(--c-danger); display:flex; align-items:center; justify-content:center; font-weight:700; }
+  .error-box .title{ margin:0 0 var(--sp-1); font-weight:600; font-size:var(--fs-sm); }
+  .error-box .desc{ margin:0 0 var(--sp-4); color:var(--c-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  footer.note-foot{ padding:var(--sp-5) 0 var(--sp-6); color:var(--c-text-muted); font-size:var(--fs-caption); }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap site-inner">
+    <span class="brand"><span class="mark" aria-hidden="true"></span>漫画站</span>
+    <nav class="site-nav" aria-label="主导航">
+      <a class="nav-link" href="#">首页</a>
+      <a class="nav-link" href="#" aria-current="page">漫画库</a>
+      <button class="icon-btn only-mobile" type="button" aria-label="搜索">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.6"/><path d="M13 13l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <nav class="crumbs" aria-label="面包屑">
+    <a href="#">首页</a> / <a href="#">漫画库</a> / <span>筛选结果</span>
+  </nav>
+
+  <div class="page-head">
+    <h1>漫画库</h1>
+    <p class="sub">按标题或作者搜索，也可以点标签缩小范围；筛选条件会写进地址栏，刷新和分享都不丢。</p>
+  </div>
+
+  <section class="panel" aria-label="搜索与筛选">
+    <form class="search" role="search" onsubmit="return false">
+      <div class="field">
+        <input type="search" value="星海" aria-label="搜索漫画名或作者" placeholder="搜索漫画名或作者">
+        <button class="clear" type="button" aria-label="清除关键词">✕</button>
+      </div>
+      <button class="btn btn-primary submit" type="submit">搜索</button>
+    </form>
+
+    <div class="filter-row">
+      <span class="filter-label">当前筛选</span>
+      <span class="active-chip">标签：科幻 <span class="x" aria-hidden="true">✕</span></span>
+      <button class="btn btn-text" type="button">清除筛选</button>
+    </div>
+
+    <div class="chip-row" role="group" aria-label="标签筛选">
+      <button class="chip" type="button" aria-pressed="true">科幻 <span class="count">2</span></button>
+      <button class="chip" type="button" aria-pressed="false">冒险 <span class="count">1</span></button>
+      <button class="chip" type="button" aria-pressed="false">武侠 <span class="count">1</span></button>
+      <button class="chip" type="button" aria-pressed="false">悬疑 <span class="count">1</span></button>
+      <button class="chip" type="button" aria-pressed="false">都市 <span class="count">1</span></button>
+    </div>
+  </section>
+
+  <div class="result-head">
+    <h2>筛选结果</h2>
+    <span class="cond">关键词“星海” + 标签“科幻”</span>
+    <span class="count">共 1 部</span>
+  </div>
+
+  <div class="cards">
+    <article class="card" tabindex="0">
+      <div class="cover" role="img" aria-label="占位封面：星海拾荒者"><span class="ph-label">封面 · 2:3</span></div>
+      <div class="card-body">
+        <h3>星海拾荒者</h3>
+        <p class="meta">作者：林晚</p>
+        <div class="tags-inline"><span class="tag-static match">科幻</span><span class="tag-static">冒险</span></div>
+        <p class="hint">共 5 话 · 从第 1 话开始</p>
+      </div>
+    </article>
+  </div>
+
+  <section class="states">
+    <div class="states-inner">
+      <h2>状态示例（设计稿补充区，不属于页面内容）</h2>
+      <p class="note">列表页三种状态：空状态（0 条结果）、加载中（搜索/筛选请求进行中）、错误状态（查询失败）。三者都替换结果区，搜索框里的关键词与选中标签保持原样。</p>
+      <div class="state-grid">
+        <div class="state-card">
+          <h4>空状态 <span>· 关键词“zzzz” + 标签“科幻”</span></h4>
+          <div class="empty-box">
+            <div class="glyph" aria-hidden="true"></div>
+            <p class="title">没有找到匹配的漫画</p>
+            <p class="desc">试试换个关键词，或去掉标签筛选。</p>
+            <div class="actions">
+              <button class="btn btn-primary" type="button">清除关键词</button>
+              <button class="btn btn-secondary" type="button">清除筛选</button>
+            </div>
+            <p class="again">也可以看看这些标签：<button type="button">冒险</button><button type="button">武侠</button></p>
+          </div>
+        </div>
+        <div class="state-card">
+          <h4>加载中 <span>· 骨架卡片 + 顶部进度条</span></h4>
+          <div class="loadbar" role="progressbar" aria-label="加载中"><span></span></div>
+          <div class="sk-card">
+            <div class="sk-cover"></div>
+            <div class="sk-lines"><div class="sk-line w70"></div><div class="sk-line w45"></div><div class="sk-line w90"></div></div>
+          </div>
+        </div>
+        <div class="state-card">
+          <h4>错误状态 <span>· 查询失败</span></h4>
+          <div class="error-box">
+            <span class="dot" aria-hidden="true">!</span>
+            <div>
+              <p class="title">搜索结果加载失败</p>
+              <p class="desc">当前筛选条件已经保留，重试即可继续。</p>
+              <button class="btn btn-primary" type="button">重试</button>
+              <button class="btn btn-secondary" type="button" style="margin-left:8px">清除筛选</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="note-foot">
+  <div class="wrap">T-002 设计预览 · 静态稿，仅用于设计定稿评审，不代表最终实现。</div>
+</footer>
+
+</body>
+</html>

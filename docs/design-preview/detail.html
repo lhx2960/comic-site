@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>T-002 设计预览 · 漫画详情</title>
+<!--
+  设计预览稿（T-002）：静态 HTML，不依赖构建工具、不引任何外部资源。
+  本页演示详情页主状态：标题/作者/标签/简介 + 开始阅读 + 继续阅读（P1，本机有进度时出现）+ 5 话话列表。
+  底部「状态示例」区补演示：加载中、加载失败、内容不存在（404 类）。
+-->
+<style>
+  /* ===== 设计令牌（浅色站点，对应 ui.md §2.1） ===== */
+  :root{
+    --c-bg:#FFFFFF; --c-bg-subtle:#F5F6F8; --c-surface:#FFFFFF; --c-surface-hover:#F0F2F5;
+    --c-border:#E4E7EC; --c-border-strong:#C7CCD4; --c-border-input:#7C8493;
+    --c-text:#14171F; --c-text-secondary:#4A5158; --c-text-muted:#666D7A; --c-text-disabled:#9CA3AF;
+    --c-primary:#C2410C; --c-primary-hover:#9A3412; --c-primary-soft:#FDF1EA; --c-primary-soft-border:#F2CDB8;
+    --c-danger:#B42318; --c-danger-soft:#FEF0EF;
+    --fs-h1:24px; --lh-h1:32px; --fs-h2:20px; --lh-h2:28px; --fs-h3:17px; --lh-h3:24px;
+    --fs-body:16px; --lh-body:26px; --fs-sm:14px; --lh-sm:22px;
+    --fs-caption:13px; --lh-caption:20px; --fs-label:12px; --lh-label:16px;
+    --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px;
+    --r-xs:6px; --r-sm:10px; --r-md:14px; --r-lg:20px; --r-pill:999px;
+    --sh-sm:0 1px 2px rgba(20,23,31,.06); --sh-md:0 4px 12px rgba(20,23,31,.08);
+    --container:1120px; --gutter:16px;
+  }
+  @media (min-width:768px){ :root{ --gutter:24px; } }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--c-bg); color:var(--c-text);
+    font:var(--fs-body)/var(--lh-body) -apple-system,"Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;}
+  a{color:inherit; text-decoration:none}
+  :focus-visible{ outline:3px solid var(--c-primary); outline-offset:2px; border-radius:var(--r-xs); }
+  .wrap{ max-width:var(--container); margin:0 auto; padding:0 var(--gutter); }
+
+  header.site{ border-bottom:1px solid var(--c-border); background:var(--c-surface); position:sticky; top:0; z-index:10; }
+  .site-inner{ display:flex; align-items:center; gap:var(--sp-4); min-height:64px; }
+  .brand{ display:flex; align-items:center; gap:var(--sp-2); font-weight:700; font-size:18px; }
+  .brand .mark{ width:20px; height:20px; border-radius:var(--r-xs); background:linear-gradient(135deg,var(--c-primary),#E8763F); }
+  .site-nav{ margin-left:auto; display:flex; align-items:center; gap:var(--sp-2); }
+  .nav-link{ min-height:44px; display:inline-flex; align-items:center; padding:0 var(--sp-3); border-radius:var(--r-sm); color:var(--c-text-secondary); font-size:var(--fs-sm); }
+  .icon-btn{ width:44px; height:44px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--c-border-input); background:var(--c-surface); border-radius:var(--r-sm); cursor:pointer; color:var(--c-text-secondary); }
+  @media (min-width:768px){ .icon-btn.only-mobile{ display:none; } }
+
+  .crumbs{ padding:var(--sp-4) 0 0; color:var(--c-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  .crumbs a{ min-height:44px; display:inline-flex; align-items:center; padding-right:var(--sp-2); }
+
+  /* ===== 详情头部：手机纵向堆叠，桌面左封面 + 右信息 ===== */
+  .detail{ padding:var(--sp-4) 0 var(--sp-6); display:grid; gap:var(--sp-4); grid-template-columns:132px 1fr; align-items:start; }
+  .cover-lg{ position:relative; aspect-ratio:2/3; border-radius:var(--r-md); overflow:hidden;
+    background:linear-gradient(150deg,#EDEFF3 0%,#DCE1E8 100%); border:1px solid var(--c-border); display:flex; align-items:flex-end; }
+  .cover-lg .ph-label{ margin:var(--sp-2); padding:2px var(--sp-2); border-radius:var(--r-xs);
+    background:rgba(255,255,255,.86); color:var(--c-text-muted); font-size:var(--fs-label); line-height:var(--lh-label); }
+  .info h1{ margin:0 0 var(--sp-2); font-size:var(--fs-h1); line-height:var(--lh-h1); }
+  .info .byline{ margin:0 0 var(--sp-3); color:var(--c-text-secondary); font-size:var(--fs-sm); }
+  .tags-inline{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+  .tag-static{ padding:4px var(--sp-3); border-radius:var(--r-pill); background:var(--c-bg-subtle);
+    border:1px solid var(--c-border); color:var(--c-text-secondary); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  .summary{ margin:var(--sp-4) 0 0; color:var(--c-text-secondary); font-size:var(--fs-sm); line-height:var(--lh-sm); grid-column:1 / -1; }
+  .actions{ grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:var(--sp-3); }
+  .btn{ min-height:44px; padding:0 var(--sp-5); border-radius:var(--r-sm); border:1px solid transparent;
+    font:600 var(--fs-sm)/1 inherit; font-family:inherit; cursor:pointer; white-space:nowrap; }
+  .btn-primary{ background:var(--c-primary); color:#FFFFFF; }
+  .btn-secondary{ background:var(--c-surface); color:var(--c-text); border-color:var(--c-border-input); }
+  .progress-note{ grid-column:1 / -1; display:flex; align-items:center; gap:var(--sp-2); color:var(--c-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  .progress-note .dotbar{ width:6px; height:6px; border-radius:var(--r-pill); background:var(--c-primary); }
+  @media (min-width:768px){
+    .detail{ grid-template-columns:240px 1fr; gap:var(--sp-6); padding:var(--sp-5) 0 var(--sp-7); }
+    .summary{ grid-column:2 / 3; margin-top:var(--sp-4); }
+    .actions{ grid-column:2 / 3; }
+    .progress-note{ grid-column:2 / 3; }
+  }
+
+  /* ===== 话列表 ===== */
+  .chapters{ max-width:var(--container); margin:0 auto; padding:0 var(--gutter) var(--sp-6); }
+  .chapters-head{ display:flex; align-items:baseline; gap:var(--sp-3); padding-bottom:var(--sp-3); border-bottom:1px solid var(--c-border); }
+  .chapters-head h2{ margin:0; font-size:var(--fs-h2); line-height:var(--lh-h2); }
+  .chapters-head .count{ color:var(--c-text-muted); font-size:var(--fs-sm); }
+  ul.chapter-list{ list-style:none; margin:0; padding:0; }
+  .chapter{ border-bottom:1px solid var(--c-border); }
+  /* 每条话都是整行可点：最小高度 56px（>44px 触控标准） */
+  .chapter a{ min-height:56px; display:flex; align-items:center; gap:var(--sp-3); padding:var(--sp-3) var(--sp-2); }
+  .chapter .no{ flex:0 0 auto; min-width:64px; color:var(--c-text-secondary); font-size:var(--fs-sm); font-weight:600; }
+  .chapter .title{ flex:1 1 auto; min-width:0; font-size:var(--fs-body); }
+  .chapter .badge{ flex:0 0 auto; padding:2px var(--sp-2); border-radius:var(--r-pill);
+    background:var(--c-primary-soft); border:1px solid var(--c-primary-soft-border); color:var(--c-primary-hover); font-size:var(--fs-label); line-height:var(--lh-label); }
+  .chapter .arrow{ flex:0 0 auto; color:var(--c-text-muted); }
+  .chapter a:hover{ background:var(--c-surface-hover); }
+
+  /* ===== 状态示例区 ===== */
+  .states{ margin-top:var(--sp-6); border-top:1px dashed var(--c-border-strong); background:var(--c-bg-subtle); }
+  .states .states-inner{ padding:var(--sp-5) var(--gutter) var(--sp-6); max-width:var(--container); margin:0 auto; }
+  .states h2{ margin:0 0 var(--sp-2); font-size:var(--fs-h3); line-height:var(--lh-h3); }
+  .states .note{ margin:0 0 var(--sp-4); color:var(--c-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  .state-grid{ display:grid; gap:var(--sp-4); grid-template-columns:1fr; }
+  @media (min-width:768px){ .state-grid{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+  .state-card{ background:var(--c-surface); border:1px solid var(--c-border); border-radius:var(--r-md); padding:var(--sp-4); }
+  .state-card h4{ margin:0 0 var(--sp-3); font-size:var(--fs-sm); }
+  .state-card h4 span{ color:var(--c-text-muted); font-weight:400; }
+  .sk-cover{ width:120px; aspect-ratio:2/3; border-radius:var(--r-md); background:linear-gradient(150deg,#EDEFF3,#E4E8EE); }
+  .sk-lines{ display:flex; flex-direction:column; gap:var(--sp-3); }
+  .sk-line{ height:14px; border-radius:var(--r-xs); background:linear-gradient(90deg,#EDEFF3,#E2E7ED,#EDEFF3); }
+  .sk-line.w60{ width:60%; } .sk-line.w35{ width:35%; } .sk-line.para{ height:10px; }
+  .sk-flex{ display:grid; grid-template-columns:120px 1fr; gap:var(--sp-4); }
+  .error-box{ display:flex; gap:var(--sp-3); align-items:flex-start; }
+  .error-box .dot{ flex:0 0 auto; width:28px; height:28px; border-radius:var(--r-pill); background:var(--c-danger-soft); color:var(--c-danger); display:flex; align-items:center; justify-content:center; font-weight:700; }
+  .error-box .title{ margin:0 0 var(--sp-1); font-weight:600; font-size:var(--fs-sm); }
+  .error-box .desc{ margin:0 0 var(--sp-4); color:var(--c-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  .empty-box{ text-align:center; padding:var(--sp-2) 0; }
+  .empty-box .glyph{ width:48px; height:48px; margin:0 auto var(--sp-3); border-radius:var(--r-sm); border:1px dashed var(--c-border-strong); background:var(--c-surface-hover); }
+  .empty-box .title{ margin:0 0 var(--sp-1); font-weight:600; font-size:var(--fs-sm); }
+  .empty-box .desc{ margin:0 0 var(--sp-4); color:var(--c-text-muted); font-size:var(--fs-caption); line-height:var(--lh-caption); }
+  .empty-box .actions{ display:flex; flex-wrap:wrap; gap:var(--sp-2); justify-content:center; }
+  footer.note-foot{ padding:var(--sp-5) 0 var(--sp-6); color:var(--c-text-muted); font-size:var(--fs-caption); }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap site-inner">
+    <span class="brand"><span class="mark" aria-hidden="true"></span>漫画站</span>
+    <nav class="site-nav" aria-label="主导航">
+      <a class="nav-link" href="#">首页</a>
+      <a class="nav-link" href="#">漫画库</a>
+      <button class="icon-btn only-mobile" type="button" aria-label="搜索">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.6"/><path d="M13 13l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <nav class="crumbs" aria-label="面包屑">
+      <a href="#">首页</a> / <a href="#">漫画库</a> / <span>星海拾荒者</span>
+    </nav>
+
+    <section class="detail">
+      <div class="cover-lg" role="img" aria-label="占位封面：星海拾荒者"><span class="ph-label">封面 · 2:3</span></div>
+      <div class="info">
+        <h1>星海拾荒者</h1>
+        <p class="byline">作者：林晚</p>
+        <div class="tags-inline"><span class="tag-static">科幻</span><span class="tag-static">冒险</span></div>
+      </div>
+      <p class="summary">在废弃轨道站之间打捞旧飞船零件的年轻人，捡到一枚还在发光的导航芯片，从此被卷进一场横跨三颗行星的追逐。本作由示例数据生成，仅用于演示阅读链路。</p>
+      <div class="actions">
+        <button class="btn btn-primary" type="button">开始阅读（第 1 话）</button>
+        <button class="btn btn-secondary" type="button">继续阅读：第 3 话 第 6 页</button>
+      </div>
+      <p class="progress-note"><span class="dotbar" aria-hidden="true"></span>上次读到第 3 话第 6 页 · 进度只记在这台设备</p>
+    </section>
+  </div>
+
+  <section class="chapters">
+    <div class="chapters-head">
+      <h2>话列表</h2>
+      <span class="count">共 5 话</span>
+    </div>
+    <ul class="chapter-list">
+      <li class="chapter"><a href="#"><span class="no">第 1 话</span><span class="title">打捞日</span><span class="arrow" aria-hidden="true">›</span></a></li>
+      <li class="chapter"><a href="#"><span class="no">第 2 话</span><span class="title">锈迹里的信号</span><span class="arrow" aria-hidden="true">›</span></a></li>
+      <li class="chapter"><a href="#"><span class="no">第 3 话</span><span class="title">三号环轨道</span><span class="badge">读到此处</span><span class="arrow" aria-hidden="true">›</span></a></li>
+      <li class="chapter"><a href="#"><span class="no">第 4 话</span><span class="title">无名船坞</span><span class="arrow" aria-hidden="true">›</span></a></li>
+      <li class="chapter"><a href="#"><span class="no">第 5 话</span><span class="title">回不去的港口</span><span class="arrow" aria-hidden="true">›</span></a></li>
+    </ul>
+  </section>
+
+  <section class="states">
+    <div class="states-inner">
+      <h2>状态示例（设计稿补充区，不属于页面内容）</h2>
+      <p class="note">详情页三种状态：加载中（骨架）、加载失败（可重试）、内容不存在（编号不存在）。三者都替换详情头部与话列表，页头与面包屑保留，保证随时能回到首页或漫画库。</p>
+      <div class="state-grid">
+        <div class="state-card">
+          <h4>加载中 <span>· 骨架</span></h4>
+          <div class="sk-flex">
+            <div class="sk-cover"></div>
+            <div class="sk-lines">
+              <div class="sk-line w60"></div>
+              <div class="sk-line w35"></div>
+              <div class="sk-line para"></div>
+              <div class="sk-line para"></div>
+              <div class="sk-line para" style="width:80%"></div>
+            </div>
+          </div>
+        </div>
+        <div class="state-card">
+          <h4>错误状态 <span>· 加载失败</span></h4>
+          <div class="error-box">
+            <span class="dot" aria-hidden="true">!</span>
+            <div>
+              <p class="title">漫画详情加载失败</p>
+              <p class="desc">这部漫画的信息暂时取不到，请重试。</p>
+              <button class="btn btn-primary" type="button">重试</button>
+            </div>
+          </div>
+        </div>
+        <div class="state-card">
+          <h4>内容不存在 <span>· 编号无效</span></h4>
+          <div class="empty-box">
+            <div class="glyph" aria-hidden="true"></div>
+            <p class="title">这部漫画不存在</p>
+            <p class="desc">地址里的编号可能被改过，回首页看看有哪些作品。</p>
+            <div class="actions">
+              <button class="btn btn-primary" type="button">返回首页</button>
+              <button class="btn btn-secondary" type="button">去漫画库</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="note-foot">
+  <div class="wrap">T-002 设计预览 · 静态稿，仅用于设计定稿评审，不代表最终实现。</div>
+</footer>
+
+</body>
+</html>
