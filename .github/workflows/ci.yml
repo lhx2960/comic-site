@@ -1,0 +1,138 @@
+# =============================================================================
+# CI：类型检查 → Lint → 单测 → 构建
+#
+# 这里每个选择都对应一个具体理由，改动前先读 docs/ops.md 的「4. CI」：
+#
+# 1) 触发范围：PR 与 main 的 push。其它分支的 push 不跑，避免个人分支刷屏；
+#    workflow_dispatch 留一个手动按钮，方便在 GitHub 网页上按需重跑。
+# 2) pnpm 钉 10.24.0：仓库的 pnpm-lock.yaml 是 lockfileVersion 9.0，本机实测的
+#    安装器也是 pnpm 10.24.0（node_modules/.modules.yaml 的 packageManager 字段）。
+#    换 pnpm 大版本会重解依赖图，--frozen-lockfile 会直接失败——这是故意的保护，
+#    不是故障；真要升级就同时改这里、docs/ops.md 与 pnpm-lock.yaml。
+# 3) Node 22：当前 Active LTS，且与本机开发环境一致；package.json 的 engines 要求
+#    >=20.9.0。升级 Node 时这里与 engines 要一起改。
+# 4) 步骤顺序：便宜的先跑（type-check / lint / 单测），最慢的 build 放最后，
+#    让明显错误在一分钟内失败退出，不浪费构建时间。
+# 5) 缓存：setup-node 的 cache: pnpm 缓存 pnpm store，键含 pnpm-lock.yaml 哈希，
+#    锁文件一变缓存自动失效，不会用到过期依赖。
+# 6) E2E 默认关闭：Playwright 要下浏览器二进制，见文件末尾的 e2e job。
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 同一个分支/PR 只保留最新一次运行：连续推送时自动取消上一次，省 runner 时间。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# 最小权限：CI 只读仓库内容，不写任何东西。
+permissions:
+  contents: read
+
+env:
+  # 与 next.config.mjs 的默认值呼应：别在 CI 里往用户目录写遥测文件。
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 注意顺序：pnpm 必须先于 setup-node 安装，否则 setup-node 的
+      # cache: pnpm 找不到 pnpm，会拿不到 store 路径而报错。
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+
+      - name: 安装 Node（LTS）
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # --frozen-lockfile：只按锁文件安装，谁忘了提交 pnpm-lock.yaml 谁就在这里红。
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm type-check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: 单元测试
+        run: pnpm test
+
+      - name: 构建
+        run: pnpm build
+
+  # ===========================================================================
+  # E2E：默认关闭（if: ${{ false }} 让它每次都跳过）
+  #
+  # 为什么不默认跑：Playwright 首次要下载 Chromium/WebKit 浏览器二进制，
+  # 冷启动会多花 2～4 分钟；本期 E2E 由 T-009 交付，合并进度还不确定，
+  # 先不让它成为必过门禁。
+  #
+  # 怎么打开（三步）：
+  #   1) 确认 T-009 的 playwright.config.ts 与 e2e/ 已经合并进主分支；
+  #   2) 删掉下面的 `if: ${{ false }}` 这一行；
+  #      只想在 PR 与 main 上跑，就换成：
+  #        if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
+  #   3) 若 e2e 要跑得更稳，可在 job 级 env 里加 PLAYWRIGHT_HTML_OPEN: never
+  #      （CI 里不要试图打开报告页面）。
+  #
+  # 本地等价命令（首次装浏览器，之后复用缓存）：
+  #   pnpm exec playwright install --with-deps chromium webkit
+  #   pnpm e2e
+  # ===========================================================================
+  e2e:
+    name: e2e
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+
+      - name: 安装 Node（LTS）
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 安装浏览器
+        run: pnpm exec playwright install --with-deps chromium webkit
+
+      - name: 跑 E2E
+        run: pnpm e2e
+
+      # 失败时也要留下痕迹：报告与截图都上传，方便回看是哪一步挂的。
+      - name: 上传 Playwright 报告
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

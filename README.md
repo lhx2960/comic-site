@@ -34,3 +34,14 @@ comic-site/
 ## 命令（工程创建后以 package.json 为准）
 
 `pnpm dev` / `pnpm build` / `pnpm test` / `pnpm e2e` / `pnpm type-check` / `pnpm lint`
+
+## 运维（CI 与部署）
+
+完整的运维手册在 [`docs/ops.md`](docs/ops.md)：环境变量清单、本地启动与常见坑、CI 说明、Vercel 部署步骤、回滚步骤、日志与监控入口。这里只放最常用的几条。
+
+- **CI**：[`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在 PR 与 push 到 `main` 时跑 `pnpm install --frozen-lockfile` → `type-check` → `lint` → `test` → `build`（Node 22 + pnpm 10.24.0）。E2E 默认关闭，打开方式写在文件注释里。
+- **本地复现同一串检查**：`pnpm install --frozen-lockfile && pnpm type-check && pnpm lint && pnpm test && pnpm build`
+- **环境变量**：本期**无需任何环境变量**（数据在仓库内，无数据库、无密钥）；`Vercel` 自己注入的变量不用手配。
+- **部署**：目标 Vercel，`main` → 生产、PR → 预览；步骤见 `docs/ops.md` §5。**当前本机缺 Vercel CLI 与登录凭据，尚未真实部署过。**
+- **回滚**：在 Vercel Dashboard 把生产指回上一次好的部署（`vercel rollback <url>`），秒级生效；步骤与本地等价演练见 `docs/ops.md` §6。
+- **日志**：构建看 Build Logs，运行时看 Runtime Logs；错误页上的「错误编号」可直接拿去 Runtime Logs 搜。
