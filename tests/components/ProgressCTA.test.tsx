@@ -7,10 +7,32 @@
  * ========================================================================== */
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProgressCTA } from "@/components/ProgressCTA";
 import { createProgressRecord, readProgress, writeProgress } from "@/lib/progress";
+
+// 同 ChapterList 的测试：把 prefetch 映射到 DOM，便于断言主 CTA 仍走默认预取
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    prefetch,
+    children,
+    ...rest
+  }: {
+    href: string;
+    prefetch?: boolean;
+    children: React.ReactNode;
+  } & Record<string, unknown>) => (
+    <a
+      href={href}
+      data-prefetch={prefetch === undefined ? "default" : String(prefetch)}
+      {...rest}
+    >
+      {children}
+    </a>
+  ),
+}));
 
 const PROPS = { slug: "xinghai", chapterCount: 5, pagesPerChapter: 10 };
 
@@ -83,5 +105,14 @@ describe("ProgressCTA", () => {
     render(<ProgressCTA {...PROPS} />);
 
     expect(screen.getByRole("link", { name: "开始阅读" }).className).toContain("h-14");
+  });
+
+  it("F-06 护栏：主 CTA 也关闭预取（与第 1 话同 URL，留着会重现竞态）", () => {
+    render(<ProgressCTA {...PROPS} />);
+
+    expect(screen.getByRole("link", { name: "开始阅读" })).toHaveAttribute(
+      "data-prefetch",
+      "false",
+    );
   });
 });

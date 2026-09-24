@@ -79,8 +79,12 @@ export function ProgressCTA({
             进度只保存在这台设备的浏览器里，清除浏览器数据会一起清掉。
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            {/* 次要入口：只换落点，不动已有记录（F4-7） */}
-            <Link href={`/comics/${slug}/1`} className={quietButtonClass}>
+            {/*
+              次要入口：只换落点，不动已有记录（F4-7）。
+              同样关掉预取：这条也指向 /comics/{slug}/1，与主 CTA 同 URL，
+              留着会与 CTA 的点击抢同一个预取请求，重现 F-06 的「点一次不动」（实测 F4-8）。
+            */}
+            <Link href={`/comics/${slug}/1`} prefetch={false} className={quietButtonClass}>
               从第 1 话重读
             </Link>
             <button type="button" onClick={() => clearProgress(slug)} className={quietButtonClass}>
@@ -94,6 +98,15 @@ export function ProgressCTA({
       <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-base px-4 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))] md:static md:z-auto md:mt-6 md:border-0 md:bg-transparent md:p-0">
         <Link
           href={record && !record.finished ? `/comics/${slug}/${record.chapter}` : `/comics/${slug}/1`}
+          /*
+           * 关闭预取（缺陷 F-06 / 裁决 D-020 的实测延伸）：
+           * 主 CTA 与话列表里「第 1 话」指向同一个地址，只要 CTA 的预取在途，
+           * 用户点 CTA 或点第 1 话都会命中同一个竞态 —— 处理函数跑了、RSC 也 200 了，
+           * 但路由不提交，必须点第二次。生产构建下全量 E2E 实测：CTA 保留预取时
+           * 每轮仍有 3～4 条红灯（F4-4 / F4-6 / F4-8 / F-06 回归-第 1 话），
+           * 关掉之后 106/106 全绿。取舍：首次点击要现取一次 RSC，数据极小无感。
+           */
+          prefetch={false}
           className={accentLinkClass}
         >
           {record
