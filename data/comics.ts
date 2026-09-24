@@ -30,12 +30,13 @@ export const comics: ComicDetail[] = [
       "拾荒船在废弃中继星的残骸里捞出一段旧历元年的航行日志，日志的主人似乎还在等一封回信。",
     tags: ["scifi", "adventure"],
     order: 1,
-    // 封面是独立的 2:3（600×900）占位图，与卡片容器同比例，展示时不裁切（ui.md §3.6）
+    // 封面复用第 1 话第 1 页（见任务单 T-003 的「恰好 150 张 SVG」约束），
+    // 卡片端用 2:3 容器裁切显示，因此这里不需要第 151 张专属封面图。
     cover: {
-      src: "/comics/xinghai/cover.svg",
+      src: "/comics/xinghai/1/001.svg",
       width: 600,
-      height: 900,
-      alt: "封面：星海拾遗",
+      height: 800,
+      alt: "《星海拾遗》封面",
     },
     chapters: [
       { number: 1, title: "冷启动" },
@@ -53,12 +54,13 @@ export const comics: ComicDetail[] = [
       "末班列车只在雨夜出现，车票是一段被删掉的记忆。侦探必须在终点站之前找出是谁在售票。",
     tags: ["scifi", "mystery"],
     order: 2,
-    // 封面是独立的 2:3（600×900）占位图，与卡片容器同比例，展示时不裁切（ui.md §3.6）
+    // 封面复用第 1 话第 1 页（见任务单 T-003 的「恰好 150 张 SVG」约束），
+    // 卡片端用 2:3 容器裁切显示，因此这里不需要第 151 张专属封面图。
     cover: {
-      src: "/comics/neon-midnight-express/cover.svg",
+      src: "/comics/neon-midnight-express/1/001.svg",
       width: 600,
-      height: 900,
-      alt: "封面：NEON 午夜快车",
+      height: 800,
+      alt: "《NEON 午夜快车》封面",
     },
     chapters: [
       { number: 1, title: "雨夜末班" },
@@ -76,12 +78,13 @@ export const comics: ComicDetail[] = [
       "巷口的小店只做三道菜，每一道都要等。等菜的人，也顺便等到了自己的答案。",
     tags: ["slice-of-life", "romance"],
     order: 3,
-    // 封面是独立的 2:3（600×900）占位图，与卡片容器同比例，展示时不裁切（ui.md §3.6）
+    // 封面复用第 1 话第 1 页（见任务单 T-003 的「恰好 150 张 SVG」约束），
+    // 卡片端用 2:3 容器裁切显示，因此这里不需要第 151 张专属封面图。
     cover: {
-      src: "/comics/slow-cooking/cover.svg",
+      src: "/comics/slow-cooking/1/001.svg",
       width: 600,
-      height: 900,
-      alt: "封面：慢煮时光",
+      height: 800,
+      alt: "《慢煮时光》封面",
     },
     chapters: [
       { number: 1, title: "第一道：汤" },

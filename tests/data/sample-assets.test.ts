@@ -2,10 +2,8 @@
  * 示例数据与磁盘占位图的一致性测试
  *
  * 访问层的页面清单是从目录约定推导出来的（见 queries.ts 的 buildPages），
- * 这里逐张核对磁盘，让「脚本产物」与「访问层推导」不会脱节：
- *   - 页图 150 张（3 部 × 5 话 × 10 页），600×800（3:4），图面写页码；
- *   - 封面 3 张（每部 1 张），600×900（2:3），与卡片容器同比例、无需裁切；
- *   - 数据里引用的每一个路径都真实存在，尺寸与 ImageRef 一致。
+ * 这里逐页核对磁盘：占位图恰好 150 张、每张都是 600×800 且写着页码、
+ * 每张被数据引用的图都真的存在。这样「脚本产物」与「访问层推导」不会脱节。
  * ========================================================================== */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -35,25 +33,16 @@ function toDiskPath(sitePath: string): string {
   return path.join(PUBLIC_DIR, sitePath.replace(/^\//, ""));
 }
 
-const svgs = collectSvgs(COMICS_DIR);
-const coverSvgs = svgs.filter((file) => path.basename(file) === "cover.svg");
-const pageSvgs = svgs.filter((file) => path.basename(file) !== "cover.svg");
+describe("占位图产物（任务单验收：恰好 150 张 600×800 SVG）", () => {
+  const svgs = collectSvgs(COMICS_DIR);
 
-describe("占位图产物：页图 150 张 3:4 + 封面 3 张 2:3", () => {
-  it(`页图恰好 ${3 * 5 * pagesPerChapter} 张（3 部 × 5 话 × 10 页）`, () => {
-    expect(pageSvgs).toHaveLength(150);
-    expect(pageSvgs.length).toBe(comics.length * 5 * pagesPerChapter);
+  it(`恰好 ${3 * 5 * pagesPerChapter} 张 SVG（3 部 × 5 话 × 10 页）`, () => {
+    expect(svgs).toHaveLength(150);
+    expect(svgs.length).toBe(comics.length * 5 * pagesPerChapter);
   });
 
-  it("每部漫画各 1 张封面，共 3 张，且放在漫画根目录", () => {
-    expect(coverSvgs).toHaveLength(comics.length);
-    for (const comic of comics) {
-      expect(coverSvgs).toContain(toDiskPath(`/comics/${comic.slug}/cover.svg`));
-    }
-  });
-
-  it("每张页图都是 600×800，且图面写着对应页码", () => {
-    for (const file of pageSvgs) {
+  it("每张都是 600×800，且图面写着对应页码", () => {
+    for (const file of svgs) {
       const content = readFileSync(file, "utf8");
       expect(content).toContain('width="600"');
       expect(content).toContain('height="800"');
@@ -63,27 +52,14 @@ describe("占位图产物：页图 150 张 3:4 + 封面 3 张 2:3", () => {
       expect(content).toContain(`第 ${page} 页`);
     }
   });
-
-  it("每张封面都是 600×900（2:3），且图面写着书名与作者", () => {
-    for (const comic of comics) {
-      const content = readFileSync(toDiskPath(`/comics/${comic.slug}/cover.svg`), "utf8");
-      expect(content).toContain('width="600"');
-      expect(content).toContain('height="900"');
-      expect(content).toContain("封面 2:3");
-      expect(content).toContain(comic.title);
-      expect(content).toContain(comic.author);
-    }
-  });
 });
 
 describe("数据与产物的对应关系", () => {
-  it("每部漫画的封面路径存在，且宽高比是 2:3（600×900）", () => {
+  it("每部漫画的封面文件都真实存在", () => {
     for (const comic of comics) {
       expect(() => readFileSync(toDiskPath(comic.cover.src), "utf8")).not.toThrow();
-      expect(comic.cover.src).toBe(`/comics/${comic.slug}/cover.svg`);
       expect(comic.cover.width).toBe(600);
-      expect(comic.cover.height).toBe(900);
-      expect(comic.cover.height / comic.cover.width).toBeCloseTo(3 / 2, 5);
+      expect(comic.cover.height).toBe(800);
     }
   });
 
