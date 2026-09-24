@@ -50,8 +50,7 @@ const comic: Comic = {
   summary: "简介不显示在卡片上",
   tags: ["scifi", "adventure"],
   order: 1,
-  // 封面是独立的 2:3 占位图（600×900），与卡片容器同比例
-  cover: { src: "/comics/xinghai/cover.svg", width: 600, height: 900, alt: "封面：星海拾遗" },
+  cover: { src: "/comics/xinghai/1/001.svg", width: 600, height: 800, alt: "第 1 话 第 1 页" },
 };
 
 describe("ComicCard", () => {
@@ -73,13 +72,13 @@ describe("ComicCard", () => {
     expect(links[0]).toHaveAttribute("href", "/comics/xinghai");
   });
 
-  it("封面用 ImageRef 的宽高（2:3）与断点 sizes，首屏两张给 priority（ui.md §10.3）", () => {
+  it("封面用 ImageRef 的宽高与断点 sizes，首屏两张给 priority（ui.md §10.3）", () => {
     render(<ComicCard comic={comic} tagNames={["科幻"]} priority />);
 
     const image = screen.getByRole("img");
-    expect(image).toHaveAttribute("src", "/comics/xinghai/cover.svg");
+    expect(image).toHaveAttribute("src", "/comics/xinghai/1/001.svg");
     expect(image).toHaveAttribute("width", "600");
-    expect(image).toHaveAttribute("height", "900");
+    expect(image).toHaveAttribute("height", "800");
     expect(image.getAttribute("data-sizes")).toContain("min-width: 1024px");
     expect(image).toHaveAttribute("data-priority", "true");
   });
