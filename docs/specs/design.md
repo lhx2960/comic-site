@@ -82,7 +82,7 @@ comic-site/
 ## 5. 渲染与缓存策略
 
 - **默认服务端渲染**：页面在服务端取数、渲染 HTML；客户端组件只出现在必须交互的地方。
-- **客户端组件清单（实况 5 个，见 D-015）**：`SearchBox`（受控输入 + 提交）、`ChapterList`（本机进度角标）、`ProgressCTA`（阅读记录卡 + 主按钮）、`ReaderStrip`（滚动、预取下一话、进度上报）、`RetryableImage`（图片错误态与重试）。其余都是服务端组件。
+- **客户端组件清单（实况 6 个，见 D-015）**：`SearchBox`（受控输入 + 提交）、`ChapterList`（本机进度角标）、`ProgressCTA`（阅读记录卡 + 主按钮）、`ReaderStrip`（滚动、预取下一话、进度上报）、`RetryableImage`（图片错误态与重试）、`ReaderProgressBar`（底部进度条）。其余都是服务端组件。
 - **数据获取**：访问层用 React `cache()` 做请求内去重；示例数据是构建期常量，不需要 `revalidate`。
 - **图片**：`next/image` + 本地占位图，固定宽高比（3:4，600×800），显式给尺寸或用比例容器，保证滚动过程**无布局跳动**（D-004 配套项）。
 
